@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:hyper_local/Screen/languagepage.dart';
+import 'package:hyper_local/Screen/login_screen.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 
 import '../utils/app_colors.dart';
@@ -98,7 +98,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   if (isLastPage) {
                     Navigator.pushReplacement(
                       context,
-                      MaterialPageRoute(builder: (_) => const LanguagePage()),
+                      MaterialPageRoute(builder: (_) => const LoginPage()),
                     );
                   } else {
                     controller.nextPage(

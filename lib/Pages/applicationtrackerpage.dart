@@ -5,6 +5,9 @@ import 'package:hyper_local/Pages/dashboard.page.dart';
 import 'package:hyper_local/Pages/homepage.dart';
 import 'package:hyper_local/Pages/recommendedjpbpage.dart';
 import 'package:hyper_local/Pages/profilepage.dart';
+import 'package:hyper_local/models/job/job_application_model.dart';
+import 'package:hyper_local/services/job_application_service.dart';
+import 'package:hyper_local/utils/session_manager.dart';
 import '../utils/app_colors.dart';
 
 class ApplicationTrackerPage extends StatefulWidget {
@@ -25,113 +28,91 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = "";
 
-  // Updated tabs to support all statuses requested
+  // Dynamic Applications Data from Backend API
+  List<JobApplicationModel> _apiApplications = [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  // Status tabs matching backend API statuses
   final List<String> _tabs = const [
     "All",
     "Applied",
-    "Viewed",
+    "Under Review",
     "Shortlisted",
-    "Interview Scheduled",
-    "Offer Released",
+    "Interview",
     "Selected",
     "Rejected",
-    "Joined",
+    "Withdrawn",
   ];
 
-  // ── STATIC APPLICATIONS DATA (Technology companies) ────
-  static final List<Map<String, dynamic>> _applications = [
-    {
-      "title": "Junior Software Developer",
-      "company": "Google",
-      "appliedOn": "12 May 2026",
-      "status": "Applied",
-      "statusColor": const Color(0xFF3B82F6), // Blue
-      "logoText": "G",
-      "logoColor": const Color(0xFF4285F4),
-    },
-    {
-      "title": "Technical Support Engineer",
-      "company": "Microsoft",
-      "appliedOn": "11 May 2026",
-      "status": "Viewed",
-      "statusColor": const Color(0xFF8B5CF6), // Purple
-      "logoText": "M",
-      "logoColor": const Color(0xFF00A4EF),
-    },
-    {
-      "title": "QA Analyst",
-      "company": "Amazon",
-      "appliedOn": "10 May 2026",
-      "status": "Shortlisted",
-      "statusColor": const Color(0xFF10B981), // Emerald
-      "logoText": "A",
-      "logoColor": const Color(0xFFFF9900),
-    },
-    {
-      "title": "Associate Software Developer",
-      "company": "IBM",
-      "appliedOn": "09 May 2026",
-      "status": "Interview Scheduled",
-      "statusColor": const Color(0xFFD97706), // Orange
-      "logoText": "I",
-      "logoColor": const Color(0xFF1F70C1),
-    },
-    {
-      "title": "React Frontend Developer",
-      "company": "Adobe",
-      "appliedOn": "08 May 2026",
-      "status": "Offer Released",
-      "statusColor": const Color(0xFFEC4899), // Pink
-      "logoText": "A",
-      "logoColor": const Color(0xFFFF0000),
-    },
-    {
-      "title": "UI/UX Designer",
-      "company": "Zoho Corporation",
-      "appliedOn": "07 May 2026",
-      "status": "Selected",
-      "statusColor": const Color(0xFF059669), // Green
-      "logoText": "Z",
-      "logoColor": const Color(0xFFE11D48),
-    },
-    {
-      "title": "Flutter Developer",
-      "company": "Salesforce",
-      "appliedOn": "06 May 2026",
-      "status": "Rejected",
-      "statusColor": const Color(0xFFEF4444), // Red
-      "logoText": "S",
-      "logoColor": const Color(0xFF00A1E0),
-    },
-    {
-      "title": "Software QA Engineer",
-      "company": "Oracle",
-      "appliedOn": "05 May 2026",
-      "status": "Joined",
-      "statusColor": const Color(0xFF047857), // Forest Green
-      "logoText": "O",
-      "logoColor": const Color(0xFFF80000),
+  @override
+  void initState() {
+    super.initState();
+    _fetchApplications();
+  }
+
+  Future<void> _fetchApplications() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final userDetails = await SessionManager.getUserDetails();
+      final userId = (userDetails['id'] is int)
+          ? userDetails['id'] as int
+          : int.tryParse(userDetails['id']?.toString() ?? '0') ?? 0;
+
+      if (userId == 0) {
+        if (mounted) {
+          setState(() {
+            _apiApplications = [];
+            _isLoading = false;
+            _errorMessage = "Please log in to view your job applications.";
+          });
+        }
+        return;
+      }
+
+      final apps = await JobApplicationService().getUserApplications(userId);
+
+      if (mounted) {
+        setState(() {
+          _apiApplications = apps;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error fetching applications: $e");
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = "Failed to load applications. Please try again.";
+        });
+      }
     }
-  ];
+  }
 
-  List<Map<String, dynamic>> get _filteredApplications {
-    List<Map<String, dynamic>> list = _applications;
+  List<JobApplicationModel> get _filteredApplications {
+    List<JobApplicationModel> list = _apiApplications;
 
     // Tab based status filter
     if (_selectedTab != 0) {
-      final tabName = _tabs[_selectedTab];
-      list = list
-          .where((app) =>
-              app["status"].toString().toLowerCase() == tabName.toLowerCase())
-          .toList();
+      final tabName = _tabs[_selectedTab].toLowerCase().replaceAll(' ', '_');
+      list = list.where((app) {
+        final st = app.applicationStatus.toLowerCase().trim();
+        if (tabName == 'under_review') return st == 'under_review' || st == 'viewed';
+        if (tabName == 'interview') return st == 'interview' || st.contains('interview');
+        return st == tabName;
+      }).toList();
     }
 
     // Search query filter (title or company)
     if (_searchQuery.trim().isNotEmpty) {
       final query = _searchQuery.trim().toLowerCase();
       list = list.where((app) {
-        final title = app["title"].toString().toLowerCase();
-        final company = app["company"].toString().toLowerCase();
+        final title = app.jobTitle.toLowerCase();
+        final company = app.companyName.toLowerCase();
         return title.contains(query) || company.contains(query);
       }).toList();
     }
@@ -141,194 +122,51 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
 
   // Get next candidate action label based on rules
   String _getActionLabel(String status) {
-    switch (status) {
-      case "Applied":
-        return "View application";
-      case "Viewed":
-        return "Wait for employer";
-      case "Shortlisted":
-        return "View update";
-      case "Interview Scheduled":
-        return "Join or get directions";
-      case "Offer Released":
-        return "Review offer";
-      case "Selected":
-        return "Complete joining";
-      case "Rejected":
-        return "View other jobs";
-      case "Joined":
-        return "Submit feedback";
+    switch (status.toLowerCase().trim()) {
+      case 'applied':
+        return "View Details";
+      case 'under_review':
+      case 'viewed':
+        return "Under Review";
+      case 'shortlisted':
+        return "View Status";
+      case 'interview':
+        return "Join Interview";
+      case 'selected':
+        return "Complete Joining";
+      case 'rejected':
+        return "Browse Jobs";
+      case 'withdrawn':
+        return "Withdrawn";
       default:
-        return "View Update";
+        return "View Status";
     }
   }
 
   // Trigger candidate action according to rules
-  void _onActionPressed(Map<String, dynamic> app) {
-    final status = app["status"] as String;
-    final title = app["title"] as String;
-    final company = app["company"] as String;
+  void _onActionPressed(JobApplicationModel app) {
+    final status = app.applicationStatus.toLowerCase().trim();
 
-    if (status == "Applied") {
-      showDialog(
-        context: context,
-        builder: (context) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: Text("Application: $title"),
-            content: const Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("Submitted Credentials:", style: TextStyle(fontWeight: FontWeight.bold)),
-                SizedBox(height: 8),
-                Text("Name: Gauri Salunkhe"),
-                Text("Email: gauri@example.com"),
-                Text("Status: Applied (Pending HR Review)"),
-              ],
-            ),
-            actions: [
-              TextButton(
-                child: const Text("Close"),
-                onPressed: () => Navigator.pop(context),
-              )
-            ],
-          );
-        },
-      );
-    } else if (status == "Viewed") {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("HR at $company is currently reviewing your profile. Please check back later.")),
-      );
-    } else if (status == "Shortlisted") {
-      showDialog(
-        context: context,
-        builder: (context) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Text("Shortlist Update"),
-            content: Text("Congrats! You cleared the initial document screening for $title at $company. Interview timings will update here soon."),
-            actions: [
-              TextButton(
-                child: const Text("Got it"),
-                onPressed: () => Navigator.pop(context),
-              )
-            ],
-          );
-        },
-      );
-    } else if (status == "Interview Scheduled") {
-      showDialog(
-        context: context,
-        builder: (context) {
-          return SimpleDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Text("Interview Portal Options"),
-            children: [
-              SimpleDialogOption(
-                onPressed: () {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Joining virtual Google Meet room call...")),
-                  );
-                },
-                child: const Row(
-                  children: [
-                    Icon(Icons.video_call_rounded, color: Colors.blue),
-                    SizedBox(width: 12),
-                    Text("Join Online Video Call"),
-                  ],
-                ),
-              ),
-              SimpleDialogOption(
-                onPressed: () {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Opening navigation routing maps to office...")),
-                  );
-                },
-                child: const Row(
-                  children: [
-                    Icon(Icons.directions_rounded, color: Colors.green),
-                    SizedBox(width: 12),
-                    Text("Get Directions to Office"),
-                  ],
-                ),
-              ),
-            ],
-          );
-        },
-      );
-    } else if (status == "Offer Released") {
-      showDialog(
-        context: context,
-        builder: (context) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: Text("Offer Letter - $company"),
-            content: const Text("We are pleased to offer you the position. Base Salary: ₹55,000/month. Please review the terms and sign onboarding documents to accept."),
-            actions: [
-              TextButton(
-                child: const Text("Decline"),
-                onPressed: () => Navigator.pop(context),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
-                onPressed: () {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Offer Letter accepted! Status updated to Selected.")),
-                  );
-                },
-                child: const Text("Accept Offer"),
-              )
-            ],
-          );
-        },
-      );
-    } else if (status == "Selected") {
-      showDialog(
-        context: context,
-        builder: (context) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Text("Complete Joining Onboarding"),
-            content: const Text("Please submit your bank details and PAN/Aadhar copy to the coordinator to complete onboarding process."),
-            actions: [
-              TextButton(
-                child: const Text("Close"),
-                onPressed: () => Navigator.pop(context),
-              )
-            ],
-          );
-        },
-      );
-    } else if (status == "Rejected") {
+    if (status == 'rejected') {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => const RecommendedJobPage()),
       );
-    } else if (status == "Joined") {
-      showDialog(
-        context: context,
-        builder: (context) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Text("Submit Hiring Feedback"),
-            content: const Text("Please rate your onboarding experience. How satisfied were you with the HR coordinators?"),
-            actions: [
-              TextButton(
-                child: const Text("Submit 5 Stars"),
-                onPressed: () {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Thank you for your valuable feedback!")),
-                  );
-                },
-              )
-            ],
-          );
-        },
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ApplicationTimelinePage(
+            applicationId: app.applicationId,
+            title: app.jobTitle,
+            company: app.companyName,
+            logoText: app.logoLetter,
+            logoColor: app.logoColor,
+            appliedOn: app.formattedAppliedDate,
+            status: app.statusLabel,
+            statusColor: app.statusColor,
+          ),
+        ),
       );
     }
   }
@@ -363,42 +201,29 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
           ),
         ),
       ),
-      body: Column(
-        children: [
-          const SizedBox(height: 6),
+      body: RefreshIndicator(
+        onRefresh: _fetchApplications,
+        color: AppColors.primary,
+        child: Column(
+          children: [
+            const SizedBox(height: 6),
 
-          // ── SEARCH BAR ───────────────────────────────────
-          _searchBar(),
+            // ── SEARCH BAR ───────────────────────────────────
+            _searchBar(),
 
-          const SizedBox(height: 8),
+            const SizedBox(height: 8),
 
-          // ── TAB ROW WITH UNDERLINE (HORIZONTALLY SCROLLABLE) ──
-          _tabRow(),
+            // ── TAB ROW WITH UNDERLINE (HORIZONTALLY SCROLLABLE) ──
+            _tabRow(),
 
-          const SizedBox(height: 8),
+            const SizedBox(height: 8),
 
-          // ── APPLICATIONS LIST ────────────────────────────
-          Expanded(
-            child: filtered.isEmpty
-                ? const Center(
-                    child: Text(
-                      "No applications here yet.",
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  )
-                : ListView.separated(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 76),
-                    itemCount: filtered.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 12),
-                    itemBuilder: (context, index) =>
-                        _applicationCard(filtered[index]),
-                  ),
-          ),
-        ],
+            // ── APPLICATIONS LIST ────────────────────────────
+            Expanded(
+              child: _buildBody(filtered),
+            ),
+          ],
+        ),
       ),
 
       // ── BOTTOM NAVIGATION BAR (FLOATING STYLE WITH GLASSMORPHISM OPACITY) ──
@@ -410,15 +235,15 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
             filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.35),
+                color: Colors.white.withValues(alpha: 0.35),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
-                  color: AppColors.border.withOpacity(0.4),
+                  color: AppColors.border.withValues(alpha: 0.4),
                   width: 1.2,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 16,
                     offset: const Offset(0, 4),
                   ),
@@ -505,6 +330,95 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildBody(List<JobApplicationModel> filtered) {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline_rounded, size: 48, color: AppColors.error),
+            const SizedBox(height: 12),
+            Text(
+              _errorMessage!,
+              style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: _fetchApplications,
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+              child: const Text("Retry", style: TextStyle(color: AppColors.buttonText)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (filtered.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          SizedBox(
+            height: MediaQuery.of(context).size.height * 0.4,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_searchQuery.trim().isNotEmpty) ...[
+                    const Icon(Icons.search_off_rounded, size: 48, color: AppColors.textHint),
+                    const SizedBox(height: 12),
+                    const Text(
+                      "No matching applications found",
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      "Try searching with a different job title or company",
+                      style: TextStyle(fontSize: 12.5, color: AppColors.textHint),
+                    ),
+                  ] else ...[
+                    const Icon(Icons.assignment_outlined, size: 48, color: AppColors.textHint),
+                    const SizedBox(height: 12),
+                    const Text(
+                      "No applications here yet.",
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      "Jobs you apply for will appear in this tracker",
+                      style: TextStyle(fontSize: 12.5, color: AppColors.textHint),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 76),
+      itemCount: filtered.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (context, index) => _applicationCard(filtered[index]),
     );
   }
 
@@ -605,9 +519,9 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
   }
 
   // ── SINGLE APPLICATION CARD WITH ACTION RULES BUTTON ──
-  Widget _applicationCard(Map<String, dynamic> app) {
-    final status = app["status"] as String;
-    final statusColor = app["statusColor"] as Color;
+  Widget _applicationCard(JobApplicationModel app) {
+    final status = app.statusLabel;
+    final statusColor = app.statusColor;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -617,7 +531,7 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
         border: Border.all(color: AppColors.border, width: 1.2),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -634,12 +548,12 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: app["logoColor"] as Color,
+                  color: app.logoColor,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Center(
                   child: Text(
-                    app["logoText"] as String,
+                    app.logoLetter,
                     style: const TextStyle(
                       color: AppColors.buttonText,
                       fontWeight: FontWeight.bold,
@@ -656,7 +570,7 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      app["title"] as String,
+                      app.jobTitle,
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
@@ -665,7 +579,7 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      app["company"] as String,
+                      app.companyName,
                       style: const TextStyle(
                         fontSize: 12,
                         color: AppColors.textSecondary,
@@ -673,7 +587,7 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      "Applied on ${app["appliedOn"]}",
+                      app.formattedAppliedDate,
                       style: const TextStyle(
                         fontSize: 11,
                         color: AppColors.textHint,
@@ -691,13 +605,14 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
                     context,
                     MaterialPageRoute(
                       builder: (context) => ApplicationTimelinePage(
-                        title: app["title"] as String,
-                        company: app["company"] as String,
-                        logoText: app["logoText"] as String,
-                        logoColor: app["logoColor"] as Color,
-                        appliedOn: app["appliedOn"] as String,
-                        status: app["status"] as String,
-                        statusColor: app["statusColor"] as Color,
+                        applicationId: app.applicationId,
+                        title: app.jobTitle,
+                        company: app.companyName,
+                        logoText: app.logoLetter,
+                        logoColor: app.logoColor,
+                        appliedOn: app.formattedAppliedDate,
+                        status: app.statusLabel,
+                        statusColor: app.statusColor,
                       ),
                     ),
                   );
@@ -706,7 +621,7 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.12),
+                    color: statusColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -729,8 +644,12 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                "Next Step: ${status == 'Viewed' ? 'Wait for HR' : 'Action Required'}",
-                style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+                "Status: $status",
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               ElevatedButton(
                 onPressed: () => _onActionPressed(app),
@@ -738,13 +657,21 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
                   backgroundColor: statusColor,
                   foregroundColor: Colors.white,
                   elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
                   minimumSize: const Size(80, 32),
                 ),
                 child: Text(
-                  _getActionLabel(status),
-                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                  _getActionLabel(app.applicationStatus),
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               )
             ],
@@ -783,7 +710,7 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: GenZ.purple.withOpacity(0.25),
+                    color: GenZ.purple.withValues(alpha: 0.25),
                     blurRadius: 8,
                     offset: const Offset(0, 3),
                   ),
@@ -799,43 +726,26 @@ class _ApplicationTrackerPageState extends State<ApplicationTrackerPage> {
               curve: Curves.easeOutBack,
               builder: (context, value, child) {
                 return Transform.scale(
-                  scale: 1 + (value * 0.15),
-                  child: child,
+                  scale: 1.0 + (value * 0.15),
+                  child: Icon(
+                    icon,
+                    size: 20,
+                    color: isSelected ? Colors.white : AppColors.textSecondary,
+                  ),
                 );
               },
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                transitionBuilder: (child, animation) =>
-                    ScaleTransition(scale: animation, child: child),
-                child: Icon(
-                  icon,
-                  key: ValueKey(isSelected),
-                  color: isSelected ? Colors.white : AppColors.unselected,
-                  size: 23,
+            ),
+            if (isSelected) ...[
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-            ),
-            AnimatedSize(
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeOutCubic,
-              child: isSelected
-                  ? Padding(
-                      padding: const EdgeInsets.only(left: 6),
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 220),
-                        opacity: isSelected ? 1 : 0,
-                        child: Text(
-                          label,
-                          style: const TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    )
-                  : const SizedBox.shrink(),
-            ),
+            ],
           ],
         ),
       ),

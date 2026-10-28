@@ -1,63 +1,7 @@
+// lib/screens/calendar_page.dart
+
 import 'package:flutter/material.dart';
-
-class AppColors {
-  // Primary Colors
-  static const Color primary = Color(0xFF9B6DFF); // Main purple (buttons, active states)
-  static const Color primaryDark = Color(0xFF6A3DE8); // Darker purple for pressed/hover
-  static const Color primaryLight = Color(0xFFB9A6FF); // Lighter purple/lavender accents
-
-  // Gradient (used on splash/illustration screens)
-  static const Color gradientStart = Color(0xFFD8CCFF); // Light lavender
-  static const Color gradientEnd = Color(0xFFF3EFFF); // Very light lavender/white
-  static const LinearGradient mainGradient = LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: [gradientStart, gradientEnd],
-  );
-
-  // Background Colors
-  static const Color background = Color(0xFFFFFFFF); // White background
-  static const Color scaffoldBackground = Color(0xFFF8F6FF); // Very light lavender-white
-
-  // Text Colors
-  static const Color textPrimary = Color(0xFF1A1A1A); // Headings
-  static const Color textSecondary = Color(0xFF6B7280); // Subtext/description (gray)
-  static const Color textHint = Color(0xFF9CA3AF); // Hint text in fields
-
-  // Border & Divider
-  static const Color border = Color(0xFFE0E0E0); // Input field borders
-  static const Color divider = Color(0xFFEEEEEE);
-
-  // Button Colors
-  static const Color buttonPrimary = primary;
-  static const Color buttonText = Color(0xFFFFFFFF);
-
-  // Selected/Active States
-  static const Color selected = primary;
-  static const Color unselected = Color(0xFFBDBDBD);
-
-  // Social Login Icons Background
-  static const Color socialIconBg = Color.fromRGBO(245, 245, 245, 1);
-
-  // Status Colors
-  static const Color success = Color(0xFF4CAF50);
-  static const Color error = Color(0xFFE53935);
-  static const Color warning = Color(0xFFFFA000);
-
-  // OTP Box
-  static const Color otpBoxBg = Color(0xFFF1F5F9);
-  static const Color otpBoxBorder = Color(0xFFCBD5E1);
-
-  // Map/Location Screen
-  static const Color mapPinRed = Color(0xFFE53935);
-  static const Color mapPinBlue = primary;
-
-  static Color? lime;
-
-  static var accents;
-
-  static Color? get primaryDeep => null;
-}
+import 'package:hyper_local/utils/app_colors.dart';
 
 class CalendarEvent {
   final String title;
@@ -86,21 +30,47 @@ class _CalendarPageState extends State<CalendarPage> {
   final Map<String, List<CalendarEvent>> _events = {
     _key(DateTime.now()): const [
       CalendarEvent(title: "Site Inspection", time: "10:00 AM"),
-      CalendarEvent(title: "Team Sync Meeting", time: "3:00 PM", color: AppColors.success),
+      CalendarEvent(
+        title: "Team Sync Meeting",
+        time: "3:00 PM",
+        color: AppColors.lime,
+      ),
     ],
     _key(DateTime.now().add(const Duration(days: 2))): const [
-      CalendarEvent(title: "Client Review", time: "1:30 PM", color: AppColors.warning),
+      CalendarEvent(
+        title: "Client Review",
+        time: "1:30 PM",
+        color: AppColors.coral,
+      ),
     ],
   };
 
   static String _key(DateTime date) =>
       "${date.year}-${date.month}-${date.day}";
 
-  static const List<String> _weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  static const List<String> _weekDays = [
+    "Mon",
+    "Tue",
+    "Wed",
+    "Thu",
+    "Fri",
+    "Sat",
+    "Sun"
+  ];
 
   static const List<String> _monthNames = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
   ];
 
   void _goToPreviousMonth() {
@@ -116,13 +86,16 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   List<DateTime?> _buildMonthGrid() {
-    final firstDayOfMonth = DateTime(_focusedMonth.year, _focusedMonth.month, 1);
-    final daysInMonth = DateTime(_focusedMonth.year, _focusedMonth.month + 1, 0).day;
+    final firstDayOfMonth =
+        DateTime(_focusedMonth.year, _focusedMonth.month, 1);
+    final daysInMonth =
+        DateTime(_focusedMonth.year, _focusedMonth.month + 1, 0).day;
 
     // Monday = 1 ... Sunday = 7
     final leadingEmptyCells = firstDayOfMonth.weekday - 1;
 
-    final List<DateTime?> cells = List<DateTime?>.filled(leadingEmptyCells, null, growable: true);
+    final List<DateTime?> cells =
+        List<DateTime?>.filled(leadingEmptyCells, null, growable: true);
     for (int day = 1; day <= daysInMonth; day++) {
       cells.add(DateTime(_focusedMonth.year, _focusedMonth.month, day));
     }
@@ -144,6 +117,9 @@ class _CalendarPageState extends State<CalendarPage> {
       backgroundColor: AppColors.scaffoldBackground,
       appBar: AppBar(
         backgroundColor: AppColors.primary,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+        toolbarHeight: 44,
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
@@ -154,7 +130,7 @@ class _CalendarPageState extends State<CalendarPage> {
           "Calendar",
           style: TextStyle(
             color: AppColors.buttonText,
-            fontSize: 18,
+            fontSize: 17,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -168,13 +144,14 @@ class _CalendarPageState extends State<CalendarPage> {
               // ── MONTH SELECTOR CARD ──────────────────────
               Container(
                 margin: const EdgeInsets.all(16),
-                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                padding:
+                    const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
                 decoration: BoxDecoration(
                   color: AppColors.background,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.04),
+                      color: AppColors.primary.withOpacity(0.06),
                       blurRadius: 12,
                       offset: const Offset(0, 4),
                     ),
@@ -187,7 +164,8 @@ class _CalendarPageState extends State<CalendarPage> {
                       children: [
                         IconButton(
                           onPressed: _goToPreviousMonth,
-                          icon: const Icon(Icons.chevron_left, color: AppColors.textPrimary),
+                          icon: const Icon(Icons.chevron_left,
+                              color: AppColors.textPrimary),
                         ),
                         Text(
                           "${_monthNames[_focusedMonth.month - 1]} ${_focusedMonth.year}",
@@ -199,7 +177,8 @@ class _CalendarPageState extends State<CalendarPage> {
                         ),
                         IconButton(
                           onPressed: _goToNextMonth,
-                          icon: const Icon(Icons.chevron_right, color: AppColors.textPrimary),
+                          icon: const Icon(Icons.chevron_right,
+                              color: AppColors.textPrimary),
                         ),
                       ],
                     ),
@@ -229,7 +208,8 @@ class _CalendarPageState extends State<CalendarPage> {
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: gridCells.length,
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 7,
                         childAspectRatio: 1,
                       ),
@@ -260,7 +240,9 @@ class _CalendarPageState extends State<CalendarPage> {
                                   "${date.day}",
                                   style: TextStyle(
                                     fontSize: 13,
-                                    fontWeight: isToday || isSelected ? FontWeight.w700 : FontWeight.w500,
+                                    fontWeight: isToday || isSelected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
                                     color: isSelected
                                         ? AppColors.buttonText
                                         : isToday
@@ -275,7 +257,7 @@ class _CalendarPageState extends State<CalendarPage> {
                                       width: 4,
                                       height: 4,
                                       decoration: const BoxDecoration(
-                                        color: AppColors.primary,
+                                        color: AppColors.lime,
                                         shape: BoxShape.circle,
                                       ),
                                     ),
@@ -306,7 +288,10 @@ class _CalendarPageState extends State<CalendarPage> {
                     ),
                     Text(
                       "${selectedEvents.length} event${selectedEvents.length == 1 ? '' : 's'}",
-                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ],
                 ),
@@ -314,16 +299,20 @@ class _CalendarPageState extends State<CalendarPage> {
               const SizedBox(height: 12),
 
               if (selectedEvents.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 24),
                   child: Center(
                     child: Column(
                       children: [
-                        Icon(Icons.event_busy_outlined, color: AppColors.textHint, size: 40),
-                        const SizedBox(height: 8),
-                        const Text(
+                        Icon(Icons.event_busy_outlined,
+                            color: AppColors.textHint, size: 40),
+                        SizedBox(height: 8),
+                        Text(
                           "No events for this day",
-                          style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: AppColors.textSecondary,
+                          ),
                         ),
                       ],
                     ),
@@ -371,12 +360,16 @@ class _CalendarPageState extends State<CalendarPage> {
                                 const SizedBox(height: 2),
                                 Text(
                                   event.time,
-                                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                          const Icon(Icons.chevron_right, color: AppColors.textHint, size: 20),
+                          const Icon(Icons.chevron_right,
+                              color: AppColors.textHint, size: 20),
                         ],
                       ),
                     );

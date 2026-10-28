@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
+import '../services/job_service.dart';
 import 'workfromhomedetailspage.dart';
 
 class WorkFromHomePage extends StatefulWidget {
@@ -11,59 +12,85 @@ class WorkFromHomePage extends StatefulWidget {
 
 class _WorkFromHomePageState extends State<WorkFromHomePage> {
   int _selectedFilter = 0;
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _dynamicJobs = [];
 
   final filters = ["All", "Full Time", "Part Time", "Freelance"];
 
-  // ── WORK FROM HOME JOBS ──────────────────────────────
-  final wfhJobs = [
-    {
-      "title": "Customer Support Executive",
-      "company": "Amazon",
-      "type": "Full Time",
-      "salary": "₹20,000 - ₹28,000",
-      "logoText": "A",
-      "logoColor": const Color(0xFFFF9900),
-    },
-    {
-      "title": "Content Writer",
-      "company": "Byju's",
-      "type": "Part Time",
-      "salary": "₹12,000 - ₹18,000",
-      "logoText": "B",
-      "logoColor": const Color(0xFF8E24AA),
-    },
-    {
-      "title": "Data Entry Operator",
-      "company": "TCS",
-      "type": "Full Time",
-      "salary": "₹15,000 - ₹20,000",
-      "logoText": "T",
-      "logoColor": const Color(0xFF0F62FE),
-    },
-    {
-      "title": "Freelance Graphic Designer",
-      "company": "Canva Partners",
-      "type": "Freelance",
-      "salary": "₹18,000 - ₹30,000",
-      "logoText": "C",
-      "logoColor": const Color(0xFF00C4CC),
-    },
-    {
-      "title": "Telecaller",
-      "company": "PolicyBazaar",
-      "type": "Part Time",
-      "salary": "₹10,000 - ₹15,000",
-      "logoText": "P",
-      "logoColor": const Color(0xFF26A69A),
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _fetchWFHJobs();
+  }
+
+  Future<void> _fetchWFHJobs() async {
+    setState(() => _isLoading = true);
+    try {
+      final allJobs = await JobService().getJobs();
+      final wfhList = allJobs.where((j) {
+        final emp = (j.employmentType ?? '').toLowerCase().trim();
+        final title = j.title.toLowerCase();
+        return j.isWFH ||
+            emp.contains('work from home') ||
+            emp.contains('wfh') ||
+            emp.contains('remote') ||
+            title.contains('work from home') ||
+            title.contains('wfh');
+      }).toList();
+
+      if (wfhList.isNotEmpty) {
+        final accentColors = [
+          const Color(0xFFFF9900),
+          const Color(0xFF8E24AA),
+          const Color(0xFF0F62FE),
+          const Color(0xFF00C4CC),
+          const Color(0xFF26A69A),
+        ];
+
+        final parsed = <Map<String, dynamic>>[];
+        for (int i = 0; i < wfhList.length; i++) {
+          final job = wfhList[i];
+          final compName = job.companyName.trim().isNotEmpty ? job.companyName.trim() : "Company";
+          final initial = compName.isNotEmpty ? compName.substring(0, 1).toUpperCase() : "J";
+
+          parsed.add({
+            "id": job.id,
+            "title": job.title.trim().isNotEmpty ? job.title.trim() : "Work From Home Opening",
+            "company": compName,
+            "type": job.employmentType ?? "Work From Home",
+            "salary": job.formattedSalary.isNotEmpty ? job.formattedSalary : "Competitive",
+            "logoText": initial,
+            "logoColor": accentColors[i % accentColors.length],
+            "raw": job.toJson(),
+          });
+        }
+
+        if (mounted) {
+          setState(() {
+            _dynamicJobs = parsed;
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint("WorkFromHomePage fetch error: $e");
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final activeJobs = _dynamicJobs;
     final filteredJobs = _selectedFilter == 0
-        ? wfhJobs
-        : wfhJobs
-            .where((job) => job["type"] == filters[_selectedFilter])
+        ? activeJobs
+        : activeJobs
+            .where((job) => (job["type"] ?? "").toString().toLowerCase().contains(filters[_selectedFilter].toLowerCase()))
             .toList();
 
     return Scaffold(
@@ -186,33 +213,38 @@ class _WorkFromHomePageState extends State<WorkFromHomePage> {
 
             // ── JOB LIST ──────────────────────────────────
             Expanded(
-              child: filteredJobs.isEmpty
+              child: _isLoading
                   ? const Center(
-                      child: Text(
-                        "No jobs found for this filter",
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
+                      child: CircularProgressIndicator(),
                     )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      itemCount: filteredJobs.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 12),
-                      itemBuilder: (context, index) {
-                        final job = filteredJobs[index];
-                        return _wfhJobCard(
-                          context: context,
-                          title: job["title"] as String,
-                          company: job["company"] as String,
-                          type: job["type"] as String,
-                          salary: job["salary"] as String,
-                          logoText: job["logoText"] as String,
-                          logoColor: job["logoColor"] as Color,
-                        );
-                      },
-                    ),
+                  : filteredJobs.isEmpty
+                      ? const Center(
+                          child: Text(
+                            "No Work From Home Jobs Found",
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                          itemCount: filteredJobs.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final job = filteredJobs[index];
+                            return _wfhJobCard(
+                              context: context,
+                              title: (job["title"] ?? "Work From Home Opening").toString(),
+                              company: (job["company"] ?? "Company").toString(),
+                              type: (job["type"] ?? "Work From Home").toString(),
+                              salary: (job["salary"] ?? "Competitive").toString(),
+                              logoText: (job["logoText"] ?? "W").toString(),
+                              logoColor: (job["logoColor"] is Color) ? job["logoColor"] as Color : AppColors.primary,
+                            );
+                          },
+                        ),
             ),
           ],
         ),

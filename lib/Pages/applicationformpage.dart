@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:hyper_local/Pages/applicationtrackerpage.dart';
@@ -72,8 +73,7 @@ class _ApplicationFormPageState extends State<ApplicationFormPage> {
     );
 
     if (pickedFile != null) {
-      final file = File(pickedFile.path);
-      final fileSize = await file.length();
+      final fileSize = await pickedFile.length();
 
       setState(() {
         _resumeFile = PlatformFile(
@@ -636,12 +636,19 @@ class _ApplicationFormPageState extends State<ApplicationFormPage> {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
-            child: Image.file(
-              File(_resumeFile!.path),
-              width: 44,
-              height: 44,
-              fit: BoxFit.cover,
-            ),
+            child: !kIsWeb
+                ? Image.file(
+                    File(_resumeFile!.path),
+                    width: 44,
+                    height: 44,
+                    fit: BoxFit.cover,
+                  )
+                : Container(
+                    width: 44,
+                    height: 44,
+                    color: AppColors.primary.withOpacity(0.1),
+                    child: const Icon(Icons.description, color: AppColors.primary),
+                  ),
           ),
           const SizedBox(width: 12),
           Expanded(

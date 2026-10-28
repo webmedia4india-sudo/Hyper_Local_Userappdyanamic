@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:hyper_local/Pages/homepage.dart';
+import 'package:hyper_local/Pages/dashboard.page.dart';
+import 'package:hyper_local/Screen/languagepage.dart';
 import 'package:hyper_local/utils/app_colors.dart';
 import 'package:hyper_local/Screen/signuppage.dart';
+import 'package:hyper_local/controllers/auth_controller.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -12,10 +14,13 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  final AuthController _authController = AuthController();
+
   final _mobileController = TextEditingController();
   final _mobileFocus = FocusNode();
 
   bool _mobileFocused = false;
+  bool _isLoading = false;
 
   // ── OTP STATE ───────────────────────────────────────────
   bool _otpSent = false; // false = show mobile field, true = show OTP boxes
@@ -49,8 +54,9 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   // ── SEND OTP HANDLER ───────────────────────────────────────
-  void _handleSendOtp() {
-    if (_mobileController.text.trim().length != 10) {
+  void _handleSendOtp() async {
+    final phone = _mobileController.text.trim();
+    if (phone.length != 10) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please enter a valid 10-digit mobile number'),
@@ -59,18 +65,36 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    // TODO: call your send-OTP API here
+    setState(() => _isLoading = true);
+    final success = await _authController.loginSendOtp(mobileNo: phone);
+    if (!mounted) return;
+    setState(() => _isLoading = false);
 
-    setState(() => _otpSent = true);
+    if (success) {
+      setState(() => _otpSent = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('OTP sent successfully to +91 $phone')),
+      );
 
-    // Auto focus first OTP box after it appears
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      FocusScope.of(context).requestFocus(_otpFocusNodes[0]);
-    });
+      // Auto focus first OTP box after it appears
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _otpFocusNodes.isNotEmpty) {
+          FocusScope.of(context).requestFocus(_otpFocusNodes[0]);
+        }
+      });
+    } else {
+      final msg = _authController.errorMessage.isNotEmpty
+          ? _authController.errorMessage
+          : 'Failed to send OTP. Please try again.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg)),
+      );
+    }
   }
 
   // ── VERIFY OTP + LOGIN HANDLER ─────────────────────────────
-  void _handleVerifyOtp() {
+  void _handleVerifyOtp() async {
+    final phone = _mobileController.text.trim();
     final otp = _otpControllers.map((c) => c.text).join();
 
     if (otp.length != _otpLength) {
@@ -80,27 +104,69 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    // TODO: call your verify-OTP API here
-
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const HomePage()),
+    setState(() => _isLoading = true);
+    final success = await _authController.loginVerifyOtp(
+      mobileNo: phone,
+      otp: otp,
     );
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Login successful!')),
+      );
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const DashboardPage()),
+        (route) => false,
+      );
+    } else {
+      final msg = _authController.errorMessage.isNotEmpty
+          ? _authController.errorMessage
+          : 'Invalid OTP. Please try again.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg)),
+      );
+    }
   }
 
   // ── RESEND OTP ──────────────────────────────────────────────
-  void _handleResendOtp() {
-    // TODO: call your resend-OTP API here
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('OTP resent')));
+  void _handleResendOtp() async {
+    final phone = _mobileController.text.trim();
+    if (phone.length != 10) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid 10-digit mobile number'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    final success = await _authController.loginSendOtp(mobileNo: phone);
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('OTP resent successfully')),
+      );
+    } else {
+      final msg = _authController.errorMessage.isNotEmpty
+          ? _authController.errorMessage
+          : 'Failed to resend OTP.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg)),
+      );
+    }
   }
 
   // ── GUEST LOGIN HANDLER → DASHBOARD ────────────────────────
   void _handleGuestLogin() {
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (context) => const HomePage()),
+      MaterialPageRoute(builder: (context) => const LanguagePage()),
     );
   }
 
@@ -266,7 +332,7 @@ class _LoginPageState extends State<LoginPage> {
                 ],
               ),
               child: ElevatedButton(
-                onPressed: _otpSent ? _handleVerifyOtp : _handleSendOtp,
+                onPressed: _isLoading ? null : (_otpSent ? _handleVerifyOtp : _handleSendOtp),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.transparent,
                   shadowColor: Colors.transparent,
@@ -275,21 +341,30 @@ class _LoginPageState extends State<LoginPage> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      _otpSent ? 'Verify & Login' : 'Send OTP',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.3,
+                child: _isLoading
+                    ? const SizedBox(
+                        height: 22,
+                        width: 22,
+                        child: CircularProgressIndicator(
+                          color: AppColors.buttonText,
+                          strokeWidth: 2.5,
+                        ),
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            _otpSent ? 'Verify & Login' : 'Send OTP',
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.arrow_forward_rounded, size: 18),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Icon(Icons.arrow_forward_rounded, size: 18),
-                  ],
-                ),
               ),
             ),
           ),

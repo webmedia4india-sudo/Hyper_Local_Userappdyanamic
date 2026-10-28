@@ -1,11 +1,33 @@
 import 'package:flutter/material.dart';
-import 'package:hyper_local/Pages/applicationformpage.dart';
-import 'package:hyper_local/Pages/savedjobpage.dart';
+import 'package:hyper_local/Pages/applicationtrackerpage.dart';
+import 'package:hyper_local/services/job_application_service.dart';
+import 'package:hyper_local/services/saved_job_service.dart';
+import 'package:hyper_local/utils/session_manager.dart';
 import '../utils/app_colors.dart';
 
-class JobDescriptionPage extends StatelessWidget {
+class JobDescriptionPage extends StatefulWidget {
+  final int jobPostId;
+  final String companyName;
+  final String jobTitle;
+  final String companyFullName;
+  final double rating;
+  final String reviewCount;
+  final String distance;
+  final String salary;
+  final String experience;
+  final String logoText;
+  final Color logoColor;
+  final String? logoImageUrl;
+  final String? logoAssetPath;
+  final List<String> skills;
+  final String description;
+  final int totalVacancies;
+  final int remainingVacancies;
+  final String postedDate;
+
   const JobDescriptionPage({
     super.key,
+    this.jobPostId = 1,
     this.companyName = "IBM",
     this.jobTitle = "Angular Developer",
     this.companyFullName = "IBM India Pvt. Ltd.",
@@ -42,41 +64,338 @@ class JobDescriptionPage extends StatelessWidget {
     this.postedDate = "25 July 2026",
   });
 
-  final String companyName;
-  final String jobTitle;
-  final String companyFullName;
-  final double rating;
-  final String reviewCount;
-  final String distance;
-  final String salary;
-  final String experience;
+  @override
+  State<JobDescriptionPage> createState() => _JobDescriptionPageState();
+}
 
-  /// Fallback letter shown if no image is provided / image fails to load.
-  final String logoText;
+class _JobDescriptionPageState extends State<JobDescriptionPage> {
+  bool _isApplying = false;
+  bool _isApplied = false;
+  bool _isSaved = false;
+  bool _isSavingJob = false;
 
-  /// Fallback background color behind the letter / used while image loads.
-  final Color logoColor;
+  @override
+  void initState() {
+    super.initState();
+    _checkIfJobIsSaved();
+  }
 
-  /// Pass a network URL to show a real logo image (e.g. Zomato's logo).
-  final String? logoImageUrl;
+  Future<void> _checkIfJobIsSaved() async {
+    try {
+      final userDetails = await SessionManager.getUserDetails();
+      final userId = (userDetails['id'] is int)
+          ? userDetails['id'] as int
+          : int.tryParse(userDetails['id']?.toString() ?? '0') ?? 0;
+      if (userId > 0 && jobPostId > 0) {
+        final savedJobs = await SavedJobService().getSavedJobsByUser(userId);
+        final isSaved = savedJobs.any((sj) => sj.jobPostId == jobPostId || sj.jobPost.id == jobPostId);
+        if (mounted) {
+          setState(() {
+            _isSaved = isSaved;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Error checking saved job state: $e");
+    }
+  }
 
-  /// Or pass a local asset path (e.g. "assets/logos/zomato.png").
-  final String? logoAssetPath;
+  Future<void> _toggleSaveJob() async {
+    if (_isSavingJob) return;
 
-  /// Exact skills required for this job — pass whatever list applies.
-  final List<String> skills;
+    setState(() => _isSavingJob = true);
 
-  /// Job description text (kept in the 300-500 character range).
-  final String description;
+    try {
+      final userDetails = await SessionManager.getUserDetails();
+      final userId = (userDetails['id'] is int)
+          ? userDetails['id'] as int
+          : int.tryParse(userDetails['id']?.toString() ?? '0') ?? 0;
 
-  /// Total number of openings for this job.
-  final int totalVacancies;
+      if (userId == 0) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Please log in first to save jobs."),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        setState(() => _isSavingJob = false);
+        return;
+      }
 
-  /// Number of openings still open (not yet filled).
-  final int remainingVacancies;
+      final targetJobId = jobPostId > 0 ? jobPostId : 1;
 
-  /// When this job was posted.
-  final String postedDate;
+      if (_isSaved) {
+        final res = await SavedJobService().deleteSavedJob(
+          userId: userId,
+          jobPostId: targetJobId,
+        );
+        if (!mounted) return;
+        if (res['success'] == true) {
+          setState(() {
+            _isSaved = false;
+            _isSavingJob = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Job removed from saved jobs"),
+              backgroundColor: AppColors.primary,
+            ),
+          );
+        } else {
+          setState(() => _isSavingJob = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(res['message']?.toString() ?? "Failed to unsave job"),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+      } else {
+        final res = await SavedJobService().saveJob(
+          userId: userId,
+          jobPostId: targetJobId,
+        );
+        if (!mounted) return;
+        final isSuccess = res['success'] == true;
+        final isAlreadySaved = res['message']?.toString().contains('already saved') == true;
+
+        if (isSuccess || isAlreadySaved) {
+          setState(() {
+            _isSaved = true;
+            _isSavingJob = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(isAlreadySaved ? "Job is already saved." : "Job saved successfully!"),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        } else {
+          setState(() => _isSavingJob = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(res['message']?.toString() ?? "Failed to save job"),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSavingJob = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Error saving job: $e"),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  int get jobPostId => widget.jobPostId;
+  String get companyName => widget.companyName;
+  String get jobTitle => widget.jobTitle;
+  String get companyFullName => widget.companyFullName;
+  double get rating => widget.rating;
+  String get reviewCount => widget.reviewCount;
+  String get distance => widget.distance;
+  String get salary => widget.salary;
+  String get experience => widget.experience;
+  String get logoText => widget.logoText;
+  Color get logoColor => widget.logoColor;
+  String? get logoImageUrl => widget.logoImageUrl;
+  String? get logoAssetPath => widget.logoAssetPath;
+  List<String> get skills => widget.skills;
+  String get description => widget.description;
+  int get totalVacancies => widget.totalVacancies;
+  int get remainingVacancies => widget.remainingVacancies;
+  String get postedDate => widget.postedDate;
+
+  Future<void> _handleApply() async {
+    if (_isApplying || _isApplied) return;
+
+    setState(() => _isApplying = true);
+
+    try {
+      final userDetails = await SessionManager.getUserDetails();
+      final userId = (userDetails['id'] is int)
+          ? userDetails['id'] as int
+          : int.tryParse(userDetails['id']?.toString() ?? '0') ?? 0;
+
+      if (userId == 0) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Please log in first to apply."),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        setState(() => _isApplying = false);
+        return;
+      }
+
+      final isEligible = await JobApplicationService().validateResumeCompletion(context);
+      if (!isEligible) {
+        if (mounted) setState(() => _isApplying = false);
+        return;
+      }
+
+      final response = await JobApplicationService().applyForJob(
+        userId: userId,
+        jobPostId: jobPostId > 0 ? jobPostId : 1,
+      );
+
+      if (!mounted) return;
+
+      if (response['success'] == true) {
+        setState(() {
+          _isApplied = true;
+          _isApplying = false;
+        });
+        _showSuccessDialog();
+      } else {
+        setState(() => _isApplying = false);
+        final msg = response['message']?.toString() ??
+            "Failed to submit application. Please try again.";
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isApplying = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Error submitting application: $e"),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showSuccessDialog() {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: "Success",
+      barrierColor: Colors.black.withOpacity(0.5),
+      transitionDuration: const Duration(milliseconds: 350),
+      pageBuilder: (context, anim1, anim2) => const SizedBox.shrink(),
+      transitionBuilder: (context, anim, secondaryAnim, child) {
+        final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutBack);
+        return Transform.scale(
+          scale: curved.value,
+          child: Opacity(
+            opacity: anim.value.clamp(0.0, 1.0),
+            child: Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 68,
+                      height: 68,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFE8F5E9),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.check_circle_rounded,
+                        color: AppColors.success,
+                        size: 42,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    const Text(
+                      "Application Submitted!",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "Your application for $jobTitle at $companyName has been submitted successfully.",
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: AppColors.border),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            child: const Text(
+                              "Done",
+                              style: TextStyle(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ApplicationTrackerPage(),
+                                ),
+                              );
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            child: const Text(
+                              "Track Status",
+                              style: TextStyle(
+                                color: AppColors.buttonText,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -100,9 +419,9 @@ class JobDescriptionPage extends StatelessWidget {
         ),
         actions: [
           IconButton(
-            onPressed: () {},
-            icon: const Icon(
-              Icons.bookmark_border_rounded,
+            onPressed: _toggleSaveJob,
+            icon: Icon(
+              _isSaved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
               color: AppColors.buttonText,
             ),
           ),
@@ -383,28 +702,37 @@ class JobDescriptionPage extends StatelessWidget {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const SavedJobPage(),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.bookmark_border_rounded, size: 18),
+                  onPressed: _isSavingJob ? null : _toggleSaveJob,
+                  icon: _isSavingJob
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.primary,
+                          ),
+                        )
+                      : Icon(
+                          _isSaved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+                          size: 18,
+                          color: _isSaved ? AppColors.primary : AppColors.textPrimary,
+                        ),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.textPrimary,
-                    side: const BorderSide(color: AppColors.border),
+                    foregroundColor: _isSaved ? AppColors.primary : AppColors.textPrimary,
+                    side: BorderSide(
+                      color: _isSaved ? AppColors.primary : AppColors.border,
+                    ),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  label: const Text(
-                    "Save",
+                  label: Text(
+                    _isSaved ? "Saved" : "Save",
                     style: TextStyle(
                       fontSize: 14.5,
                       fontWeight: FontWeight.w600,
+                      color: _isSaved ? AppColors.primary : AppColors.textPrimary,
                     ),
                   ),
                 ),
@@ -413,16 +741,11 @@ class JobDescriptionPage extends StatelessWidget {
               Expanded(
                 flex: 2,
                 child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const ApplicationFormPage(),
-                      ),
-                    );
-                  },
+                  onPressed: _isApplying ? null : _handleApply,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.buttonPrimary,
+                    backgroundColor: _isApplied
+                        ? AppColors.success
+                        : AppColors.buttonPrimary,
                     foregroundColor: AppColors.buttonText,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     elevation: 0,
@@ -430,13 +753,35 @@ class JobDescriptionPage extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text(
-                    "Apply Now",
-                    style: TextStyle(
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                  child: _isApplying
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                            color: AppColors.buttonText,
+                          ),
+                        )
+                      : Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (_isApplied) ...[
+                              const Icon(
+                                Icons.check_circle_rounded,
+                                size: 18,
+                                color: AppColors.buttonText,
+                              ),
+                              const SizedBox(width: 6),
+                            ],
+                            Text(
+                              _isApplied ? "Applied" : "Apply Now",
+                              style: const TextStyle(
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
                 ),
               ),
             ],

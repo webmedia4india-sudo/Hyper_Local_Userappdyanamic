@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:hyper_local/models/job/missed_opportunity_model.dart';
+import 'package:hyper_local/services/missed_opportunity_service.dart';
+import 'package:hyper_local/utils/session_manager.dart';
 import '../utils/app_colors.dart';
 
 /// Data for a single missed job — pass a list of these to [MissOpportunityPage].
@@ -30,69 +33,103 @@ class MissedJobInfo {
   final String reason;
 }
 
-class MissOpportunityPage extends StatelessWidget {
-  MissOpportunityPage({
-    super.key,
-    List<MissedJobInfo>? missedJobs,
-    this.onBrowseJobs,
-    this.onJobTap,
-  }) : missedJobs = missedJobs ?? _defaultMissedJobs;
-
-  /// All the jobs the user missed out on.
-  final List<MissedJobInfo> missedJobs;
-
-  /// Called when the user taps "Browse Similar Jobs".
+class MissOpportunityPage extends StatefulWidget {
+  final List<MissedJobInfo>? missedJobs;
   final VoidCallback? onBrowseJobs;
-
-  /// Called with the tapped job when a card is pressed.
   final void Function(MissedJobInfo job)? onJobTap;
 
-  static final List<MissedJobInfo> _defaultMissedJobs = [
-    const MissedJobInfo(
-      companyName: "TechNova Solutions",
-      jobTitle: "Angular Developer",
-      companyFullName: "TechNova Solutions Pvt. Ltd.",
-      salary: "₹35,000 - ₹45,000",
-      logoText: "A",
-      logoColor: AppColors.coral,
-      postedDate: "18 July 2026",
-      missedDate: "27 July 2026",
-      reason: "All vacancies for this role have been filled.",
-    ),
-    const MissedJobInfo(
-      companyName: "PixelCraft Studio",
-      jobTitle: "Frontend Developer",
-      companyFullName: "PixelCraft Studio LLP",
-      salary: "₹30,000 - ₹40,000",
-      logoText: "F",
-      logoColor: AppColors.mint,
-      postedDate: "15 July 2026",
-      missedDate: "26 July 2026",
-      reason: "Application deadline has passed.",
-    ),
-    const MissedJobInfo(
-      companyName: "CoreStack Systems",
-      jobTitle: "Backend Developer",
-      companyFullName: "CoreStack Systems Pvt. Ltd.",
-      salary: "₹40,000 - ₹55,000",
-      logoText: "B",
-      logoColor: AppColors.primary,
-      postedDate: "12 July 2026",
-      missedDate: "24 July 2026",
-      reason: "All vacancies for this role have been filled.",
-    ),
-    const MissedJobInfo(
-      companyName: "AppSpring Labs",
-      jobTitle: "Flutter Developer",
-      companyFullName: "AppSpring Labs Pvt. Ltd.",
-      salary: "₹32,000 - ₹42,000",
-      logoText: "F",
-      logoColor: AppColors.pink,
-      postedDate: "10 July 2026",
-      missedDate: "22 July 2026",
-      reason: "Application deadline has passed.",
-    ),
-  ];
+  const MissOpportunityPage({
+    super.key,
+    this.missedJobs,
+    this.onBrowseJobs,
+    this.onJobTap,
+  });
+
+  @override
+  State<MissOpportunityPage> createState() => _MissOpportunityPageState();
+}
+
+class _MissOpportunityPageState extends State<MissOpportunityPage> {
+  List<MissedJobInfo> _missedJobs = [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.missedJobs != null) {
+      _missedJobs = List.from(widget.missedJobs!);
+      _isLoading = false;
+      _fetchMissedJobs(showLoading: false);
+    } else {
+      _fetchMissedJobs(showLoading: true);
+    }
+  }
+
+  Future<void> _fetchMissedJobs({bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
+
+    try {
+      final userDetails = await SessionManager.getUserDetails();
+      final userId = (userDetails['id'] is int)
+          ? userDetails['id'] as int
+          : int.tryParse(userDetails['id']?.toString() ?? '0') ?? 0;
+
+      if (userId == 0) {
+        if (mounted) {
+          setState(() {
+            _missedJobs = [];
+            _isLoading = false;
+            _errorMessage = "Please log in to view missed opportunities.";
+          });
+        }
+        return;
+      }
+
+      final res = await MissedOpportunityService().getMissedOpportunitiesByUser(userId);
+      if (mounted) {
+        if (res['success'] == true && res['items'] is List<MissedOpportunityModel>) {
+          final items = (res['items'] as List<MissedOpportunityModel>)
+              .where((m) => m.isWithinRetentionPeriod)
+              .toList();
+          setState(() {
+            _missedJobs = items.map((m) => MissedJobInfo(
+              companyName: m.companyName,
+              jobTitle: m.title,
+              companyFullName: m.companyFullName ?? "${m.companyName} Pvt. Ltd.",
+              salary: m.formattedSalary,
+              logoText: m.logoLetter,
+              logoColor: m.logoColor,
+              postedDate: m.formattedPostedDate,
+              missedDate: m.formattedClosedDate,
+              reason: m.formattedReason,
+            )).toList();
+            _isLoading = false;
+            _errorMessage = null;
+          });
+        } else {
+          setState(() {
+            _missedJobs = [];
+            _isLoading = false;
+            _errorMessage = res['message']?.toString();
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching missed jobs page: $e");
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = "Failed to load missed opportunities.";
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -115,13 +152,51 @@ class MissOpportunityPage extends StatelessWidget {
           ),
         ),
       ),
-      body: ListView(
+      body: RefreshIndicator(
+        onRefresh: _fetchMissedJobs,
+        color: AppColors.primary,
+        child: _buildBody(context),
+      ),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline_rounded, size: 48, color: AppColors.error),
+            const SizedBox(height: 12),
+            Text(
+              _errorMessage!,
+              style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: _fetchMissedJobs,
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+              child: const Text("Retry", style: TextStyle(color: AppColors.buttonText)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_missedJobs.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
         children: [
-          // ── STATUS BANNER ──────────────────────────────────
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 20),
+            padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 20),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
@@ -147,14 +222,14 @@ class MissOpportunityPage extends StatelessWidget {
                     ],
                   ),
                   child: const Icon(
-                    Icons.hourglass_disabled_rounded,
-                    color: AppColors.primaryDark,
-                    size: 32,
+                    Icons.check_circle_outline_rounded,
+                    color: AppColors.success,
+                    size: 36,
                   ),
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  "You Missed These Opportunities",
+                  "No Missed Opportunities",
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 17,
@@ -163,10 +238,10 @@ class MissOpportunityPage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  "${missedJobs.length} jobs you applied late for or missed out on",
+                const Text(
+                  "You're all caught up! No missed job deadlines found.",
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12.5,
                     color: AppColors.textSecondary,
                   ),
@@ -174,17 +249,11 @@ class MissOpportunityPage extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 20),
-
-          // ── LIST OF MISSED JOB CARDS ───────────────────────
-          ...missedJobs.map((job) => _missedJobCard(context, job)),
-          const SizedBox(height: 8),
-
-          // ── CTA: browse similar jobs ──────────────────────
+          const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: onBrowseJobs,
+              onPressed: widget.onBrowseJobs ?? () => Navigator.pop(context),
               icon: const Icon(Icons.search_rounded, size: 20),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.buttonPrimary,
@@ -196,13 +265,103 @@ class MissOpportunityPage extends StatelessWidget {
                 ),
               ),
               label: const Text(
-                "Browse Similar Jobs",
+                "Browse Jobs",
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
               ),
             ),
           ),
         ],
-      ),
+      );
+    }
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+      children: [
+        // ── STATUS BANNER ──────────────────────────────────
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 20),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [AppColors.primaryLight, AppColors.accentsSoft[0]],
+            ),
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: AppColors.background,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primaryDeep.withOpacity(0.15),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.hourglass_disabled_rounded,
+                  color: AppColors.primaryDark,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                "You Missed These Opportunities",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                "${_missedJobs.length} jobs you applied late for or missed out on",
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // ── LIST OF MISSED JOB CARDS ───────────────────────
+        ..._missedJobs.map((job) => _missedJobCard(context, job)),
+        const SizedBox(height: 8),
+
+        // ── CTA: browse similar jobs ──────────────────────
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: widget.onBrowseJobs ?? () => Navigator.pop(context),
+            icon: const Icon(Icons.search_rounded, size: 20),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.buttonPrimary,
+              foregroundColor: AppColors.buttonText,
+              padding: const EdgeInsets.symmetric(vertical: 15),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            label: const Text(
+              "Browse Similar Jobs",
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -214,7 +373,7 @@ class MissOpportunityPage extends StatelessWidget {
         color: AppColors.background,
         borderRadius: BorderRadius.circular(18),
         child: InkWell(
-          onTap: onJobTap == null ? null : () => onJobTap!(job),
+          onTap: widget.onJobTap == null ? null : () => widget.onJobTap!(job),
           borderRadius: BorderRadius.circular(18),
           child: Container(
             padding: const EdgeInsets.all(16),
@@ -371,7 +530,7 @@ class MissOpportunityPage extends StatelessWidget {
     );
   }
 
-  // ── COMPANY LOGO (real image if provided, else colored letter) ──
+  // ── COMPANY LOGO ──────────────────────────────────────────
   Widget _companyLogo(MissedJobInfo job) {
     Widget child;
 

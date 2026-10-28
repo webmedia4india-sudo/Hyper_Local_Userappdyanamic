@@ -1,4 +1,4 @@
-package com.userapp.hyperlocal
+package com.user.HiHR
 
 import io.flutter.embedding.android.FlutterActivity
 

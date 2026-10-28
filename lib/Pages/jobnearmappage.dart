@@ -1,6 +1,15 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import '../utils/app_colors.dart';
+import '../services/api_service.dart';
+import '../services/saved_job_service.dart';
+import '../services/job_application_service.dart';
+import '../services/location_service.dart';
+import '../models/location/city_model.dart';
+import '../utils/session_manager.dart';
+import 'applicationtrackerpage.dart';
+import 'jobdescriptipnpage.dart';
 
 /// ── THEME COLORS (matches AppColors blue palette) ──
 class GenZ {
@@ -30,8 +39,8 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
   String _searchQuery = "";
   final TextEditingController _searchController = TextEditingController();
 
-  double _maxTravelRadius = 8.0; // 5.3 Radius selection (default 8 km)
-  bool _isHeatmapView = false; // 5.4 Local hiring heatmap mode toggle
+  double _maxTravelRadius = 50.0; // Radius selection (default 50 km to show all nearby jobs)
+  bool _isHeatmapView = true; // Local hiring heatmap mode enabled by default
   bool _isSearchingThisArea = false; // Search this area state indicator
 
   // Entry Animations State
@@ -45,270 +54,826 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
   // Filters State (5.2 filters)
   String _filterExperience = "All";
   String _filterJobType = "All";
-  double _filterMinSalary = 10000;
+  double _filterMinSalary = 0; // Default 0 to prevent accidental job filtering
   bool _filterOnlyUrgent = false;
   bool _filterOnlyVerified = false;
 
-  // Candidate coordinates (center of map)
-  final double _candidateLat = 19.0760;
-  final double _candidateLng = 72.8777;
+  // User's selected city and location services
+  int? _selectedCityId;
+  String _selectedCityName = "Amravati";
+  final LocationService _locationService = LocationService();
 
-  // Mock list of IT companies (containing all 5.1/7 required details & fields)
-  final List<Map<String, dynamic>> nearbyJobs = [
-    {
-      "id": "tcs_powai",
-      "title": "Associate Software Developer",
-      "company": "TCS",
-      "logoText": "T",
-      "logoColor": const Color(0xFF1E3A8A),
-      "salary": "₹35,000 - ₹50,000",
-      "minSalaryVal": 35000,
-      "experience": "0-1 yr",
-      "employmentType": "Full-time",
-      "location": "Powai, Mumbai",
-      "postedTime": "2 hours ago",
-      "isVerified": true,
-      "isUrgent": true,
-      "lat": 19.1176,
-      "lng": 72.9060,
-      "dx": 0.60,
-      "dy": 0.38,
-      // 7. Job details fields
-      "description":
-          "TCS is looking for an Associate Software Developer to help design, develop, and maintain software solutions. You will work within agile teams to deliver premium web and mobile applications.",
-      "responsibilities": [
-        "Write clean, scalable, and maintainable software code.",
-        "Collaborate with senior developers and system architects.",
-        "Perform testing and debugging to maintain product reliability.",
-      ],
-      "requiredSkills": ["Java", "SQL", "Git", "Flutter"],
-      "qualification": "B.E. / B.Tech in CSE / IT",
-      "incentives": "Annual performance bonus & healthcare benefits",
-      "vacancies": 8,
-      "shift": "Day Shift",
-      "workingHours": "9:00 AM - 6:00 PM",
-      "weeklyOff": "Saturday & Sunday",
-      "benefits": "Free medical cover, cab service, gym access",
-      "deadline": "August 15, 2026",
-      "companyProfile":
-          "Tata Consultancy Services is a global leader in IT services, consulting & business solutions.",
-      "companySize": "500,000+ employees",
-      "ratings": 4.2,
-      "reviews": 12450,
-      "isClosed": false,
-      "isExpired": false,
-    },
-    {
-      "id": "infosys_andheri",
-      "title": "React Frontend Developer",
-      "company": "Infosys",
-      "logoText": "I",
-      "logoColor": const Color(0xFF007ACC),
-      "salary": "₹40,000 - ₹60,000",
-      "minSalaryVal": 40000,
-      "experience": "Fresher",
-      "employmentType": "Full-time",
-      "location": "Andheri East, Mumbai",
-      "postedTime": "5 hours ago",
-      "isVerified": true,
-      "isUrgent": false,
-      "lat": 19.1136,
-      "lng": 72.8697,
-      "dx": 0.32,
-      "dy": 0.28,
-      "description":
-          "Join our frontend engineering team to build beautiful, fast, and responsive user interfaces for global enterprise platforms.",
-      "responsibilities": [
-        "Develop responsive UI components using React and Redux.",
-        "Optimize web performance and ensure SEO best practices.",
-        "Integrate RESTful APIs with frontend layout state.",
-      ],
-      "requiredSkills": ["React.js", "HTML5", "CSS3", "JavaScript"],
-      "qualification": "BCA / MCA / B.Sc Computer Science",
-      "incentives": "Project completion bonuses",
-      "vacancies": 4,
-      "shift": "Rotational Shift",
-      "workingHours": "10:00 AM - 7:00 PM",
-      "weeklyOff": "Sunday",
-      "benefits": "Free training certifications, health insurance",
-      "deadline": "August 10, 2026",
-      "companyProfile":
-          "Infosys is a global leader in next-generation digital services and consulting.",
-      "companySize": "300,000+ employees",
-      "ratings": 4.0,
-      "reviews": 8920,
-      "isClosed": false,
-      "isExpired": false,
-    },
-    {
-      "id": "zoho_kurla",
-      "title": "UI/UX Designer",
-      "company": "Zoho Corporation",
-      "logoText": "Z",
-      "logoColor": const Color(0xFFE11D48),
-      "salary": "₹30,000 - ₹45,000",
-      "minSalaryVal": 30000,
-      "experience": "1-2 yrs",
-      "employmentType": "Full-time",
-      "location": "Kurla, Mumbai",
-      "postedTime": "1 day ago",
-      "isVerified": true,
-      "isUrgent": true,
-      "lat": 19.0728,
-      "lng": 72.8826,
-      "dx": 0.52,
-      "dy": 0.56,
-      "description":
-          "We are seeking a talented UI/UX Designer to craft beautiful vector layouts, wireframes, and design interactive user flows for Zoho tools.",
-      "responsibilities": [
-        "Create wireframes, storyboards, and high-fidelity mockups.",
-        "Conduct user research and structure intuitive navigations.",
-        "Collaborate with developers to ensure pixel-perfect integration.",
-      ],
-      "requiredSkills": ["Figma", "Adobe XD", "Illustrator", "Prototyping"],
-      "qualification": "Graduate in Design or Fine Arts",
-      "incentives": "Performance-based rewards",
-      "vacancies": 3,
-      "shift": "Day Shift",
-      "workingHours": "9:30 AM - 6:30 PM",
-      "weeklyOff": "Saturday & Sunday",
-      "benefits": "Subsidized food, health coverage, high-end laptops",
-      "deadline": "August 20, 2026",
-      "companyProfile":
-          "Zoho offers a suite of cloud applications run on a private business ecosystem.",
-      "companySize": "15,000+ employees",
-      "ratings": 4.5,
-      "reviews": 3120,
-      "isClosed": false,
-      "isExpired": false,
-    },
-    {
-      "id": "wipro_ghatkopar",
-      "title": "Flutter Developer",
-      "company": "Wipro",
-      "logoText": "W",
-      "logoColor": const Color(0xFF6D28D9),
-      "salary": "₹45,000 - ₹65,000",
-      "minSalaryVal": 45000,
-      "experience": "0-1 yr",
-      "employmentType": "Contract",
-      "location": "Ghatkopar, Mumbai",
-      "postedTime": "3 hours ago",
-      "isVerified": true,
-      "isUrgent": false,
-      "lat": 19.0864,
-      "lng": 72.9081,
-      "dx": 0.72,
-      "dy": 0.48,
-      "description":
-          "Develop and maintain robust mobile applications for Android & iOS platforms using Flutter SDK.",
-      "responsibilities": [
-        "Write clean Flutter and Dart code components.",
-        "Implement state management like Bloc, Provider or Riverpod.",
-        "Optimize mobile application packages for app store submissions.",
-      ],
-      "requiredSkills": ["Flutter", "Dart", "REST API", "Firebase"],
-      "qualification": "B.E. / BCA / Computer Science diploma",
-      "incentives": "Contract extension bonuses",
-      "vacancies": 2,
-      "shift": "Flexible Shift",
-      "workingHours": "9:00 AM - 6:00 PM",
-      "weeklyOff": "Sunday",
-      "benefits": "Remote work options, internet allowance",
-      "deadline": "August 05, 2026",
-      "companyProfile":
-          "Wipro is a leading technology services and consulting company driving digital innovation.",
-      "companySize": "250,000+ employees",
-      "ratings": 3.9,
-      "reviews": 11200,
-      "isClosed": false,
-      "isExpired": false,
-    },
-    {
-      "id": "techm_bhandup",
-      "title": "Python Backend Developer",
-      "company": "Tech Mahindra",
-      "logoText": "T",
-      "logoColor": const Color(0xFFEA580C),
-      "salary": "₹38,000 - ₹55,000",
-      "minSalaryVal": 38000,
-      "experience": "2+ yrs",
-      "employmentType": "Full-time",
-      "location": "Bhandup, Mumbai",
-      "postedTime": "1 day ago",
-      "isVerified": false,
-      "isUrgent": false,
-      "lat": 19.1490,
-      "lng": 72.9370,
-      "dx": 0.22,
-      "dy": 0.18,
-      "description":
-          "Looking for a backend engineer proficient in Python web frameworks (Django/FastAPI) to handle server logic, databases, and APIs.",
-      "responsibilities": [
-        "Design scalable RESTful API endpoints.",
-        "Manage SQL databases and optimize querying performance.",
-        "Secure backend services with token-based authentications.",
-      ],
-      "requiredSkills": ["Python", "Django", "PostgreSQL", "Docker"],
-      "qualification": "B.Tech / MCA",
-      "incentives": "Variable pay options",
-      "vacancies": 5,
-      "shift": "Night Shift",
-      "workingHours": "7:00 PM - 4:00 AM",
-      "weeklyOff": "Saturday & Sunday",
-      "benefits": "Night shift allowance, meal coupons, medical care",
-      "deadline": "August 22, 2026",
-      "companyProfile":
-          "Tech Mahindra represents the digital transformation wing of the Mahindra Group.",
-      "companySize": "145,000+ employees",
-      "ratings": 3.8,
-      "reviews": 6500,
-      "isClosed": false,
-      "isExpired": true, // Expired job test case
-    },
-    {
-      "id": "cogni_vikhroli",
-      "title": "Software QA Engineer",
-      "company": "Cognizant",
-      "logoText": "C",
-      "logoColor": const Color(0xFF3B82F6),
-      "salary": "₹32,000 - ₹48,000",
-      "minSalaryVal": 32000,
-      "experience": "Fresher",
-      "employmentType": "Part-time",
-      "location": "Vikhroli, Mumbai",
-      "postedTime": "6 hours ago",
-      "isVerified": true,
-      "isUrgent": false,
-      "lat": 19.1077,
-      "lng": 72.9250,
-      "dx": 0.42,
-      "dy": 0.68,
-      "description":
-          "Test enterprise softwares and compile test case scenarios to discover software bugs before release.",
-      "responsibilities": [
-        "Write detailed manual and automated test script cases.",
-        "Perform regression, system, and stress testing processes.",
-        "Document software anomalies and monitor progress in Jira.",
-      ],
-      "requiredSkills": ["Selenium", "Java", "Testing", "Jira"],
-      "qualification": "B.Sc / BCA",
-      "incentives": "Overtime productivity bonuses",
-      "vacancies": 1,
-      "shift": "Evening Shift",
-      "workingHours": "4:00 PM - 10:00 PM",
-      "weeklyOff": "Sunday",
-      "benefits": "Free shuttle, certification support",
-      "deadline": "July 28, 2026",
-      "companyProfile":
-          "Cognizant helps clients modernize technology, reimagine processes & transform experiences.",
-      "companySize": "340,000+ employees",
-      "ratings": 4.1,
-      "reviews": 9800,
-      "isClosed": true, // Closed job test case
-      "isExpired": false,
-    },
-  ];
+  // Known city coordinates dictionary matching backend CITY_COORDINATES
+  static const Map<String, (double, double)> _cityCenterCoords = {
+    'amravati': (20.9374, 77.7796),
+    'sai nagar': (20.9380, 77.7800),
+    'mumbai': (19.0760, 72.8777),
+    'pune': (18.5204, 73.8567),
+    'nagpur': (21.1458, 79.0882),
+    'delhi': (28.6139, 77.2090),
+    'bangalore': (12.9716, 77.5946),
+    'hyderabad': (17.3850, 78.4867),
+    'chennai': (13.0827, 80.2707),
+    'kolkata': (22.5726, 88.3639),
+    'ahmedabad': (23.0225, 72.5714),
+    'jaipur': (26.9124, 75.7873),
+    'lucknow': (26.8467, 80.9462),
+    'indore': (22.7196, 75.8577),
+    'bhopal': (23.2599, 77.4126),
+    'chandigarh': (30.7333, 76.7794),
+    'surat': (21.1702, 72.8311),
+    'nashik': (19.9975, 73.7898),
+    'aurangabad': (19.8762, 75.3433),
+    'solapur': (17.6599, 75.9064),
+    'kolhapur': (16.7050, 74.2433),
+    'akola': (20.7002, 77.0082),
+    'jalgaon': (21.0077, 75.5626),
+    'nanded': (19.1383, 77.3210),
+    'satara': (17.6805, 73.9998),
+    'sangli': (16.8524, 74.5815),
+  };
+
+  // Candidate coordinates (dynamically centered on selected city / GPS)
+  double _candidateLat = 20.9374;
+  double _candidateLng = 77.7796;
+  bool _hasCandidateCoordinates = false;
+
+  // Dynamic list loaded from API
+  List<Map<String, dynamic>> _nearbyJobs = [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  /// Loads the selected city from SessionManager or Profile API and initiates nearby jobs fetch
+  Future<void> _loadCityAndInitLocation() async {
+    try {
+      int? savedId = await SessionManager.getSelectedCityId();
+      String? savedName = await SessionManager.getSelectedCityName();
+
+      if (savedId == null || savedId <= 0 || savedName == null || savedName.trim().isEmpty) {
+        // Fetch from user profile API: GET /api/user/profile
+        try {
+          final profileRes = await ApiService().getRequest('/user/profile');
+          if (profileRes['status'] == true && profileRes['data'] != null) {
+            final data = profileRes['data'] as Map<String, dynamic>;
+            final profileCityId = data['city_id'];
+            final profileCityName = data['city_name'];
+            if (profileCityId != null) {
+              final parsedId = profileCityId is int
+                  ? profileCityId
+                  : int.tryParse(profileCityId.toString());
+              if (parsedId != null && parsedId > 0) {
+                savedId = parsedId;
+                savedName = profileCityName?.toString() ?? 'Amravati';
+                await SessionManager.saveSelectedCity(
+                  cityId: savedId,
+                  cityName: savedName,
+                );
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('Error fetching profile city in JobNearMapPage: $e');
+        }
+      }
+
+      // Default to Amravati (357) if no city is configured
+      if (savedId == null || savedId <= 0) {
+        savedId = 357;
+        savedName = "Amravati";
+        await SessionManager.saveSelectedCity(
+          cityId: savedId,
+          cityName: savedName,
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          _selectedCityId = savedId;
+          _selectedCityName = savedName ?? "Amravati";
+        });
+      }
+
+      await _resolveCoordinatesForCity(savedId, savedName ?? "Amravati");
+      await _fetchNearbyJobs();
+    } catch (e) {
+      debugPrint("Error loading city in JobNearMapPage: $e");
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = "Failed to load location data.";
+        });
+      }
+    }
+  }
+
+  /// Resolves latitude/longitude for the selected city, prioritizing actual GPS
+  /// if the user is in that city, and falling back to city center coordinates.
+  Future<void> _resolveCoordinatesForCity(int cityId, String cityName) async {
+    final cityLower = cityName.trim().toLowerCase();
+    final (double, double)? center = _cityCenterCoords[cityLower];
+
+    double defaultLat = center?.$1 ?? 20.9374;
+    double defaultLng = center?.$2 ?? 77.7796;
+
+    // Try GPS first if enabled and permitted
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (serviceEnabled) {
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        if (permission == LocationPermission.whileInUse ||
+            permission == LocationPermission.always) {
+          final pos = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.medium,
+            timeLimit: const Duration(seconds: 3),
+          );
+
+          // If GPS is within reasonable proximity (< 70km) of city center, use exact GPS
+          double distFromCenter = _distanceKm(
+            pos.latitude,
+            pos.longitude,
+            defaultLat,
+            defaultLng,
+          );
+          if (center == null || distFromCenter <= 70) {
+            if (mounted) {
+              setState(() {
+                _candidateLat = pos.latitude;
+                _candidateLng = pos.longitude;
+                _hasCandidateCoordinates = true;
+              });
+            }
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("GPS location check failed or unavailable: $e");
+    }
+
+    // Default to city center coordinates
+    if (mounted) {
+      setState(() {
+        _candidateLat = defaultLat;
+        _candidateLng = defaultLng;
+        _hasCandidateCoordinates = true;
+      });
+    }
+  }
+
+  /// Updates selected city in local state, SessionManager, backend profile,
+  /// resolves new coordinates, and refreshes nearby jobs.
+  Future<void> _updateProfileCity({
+    required int cityId,
+    required String cityName,
+  }) async {
+    // 1. Save selected city locally
+    await SessionManager.saveSelectedCity(
+      cityId: cityId,
+      cityName: cityName,
+    );
+
+    // 2. Clear old jobs and update UI immediately to prevent stale data
+    if (mounted) {
+      setState(() {
+        _selectedCityId = cityId;
+        _selectedCityName = cityName;
+        _nearbyJobs.clear();
+        _selectedJobIndex = 0;
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
+
+    // 3. Save new city_id to users.city_id via PUT /api/user/update-profile
+    try {
+      final token = await SessionManager.getToken();
+      if (token != null && token.isNotEmpty) {
+        final res = await ApiService().putRequest(
+          '/user/update-profile',
+          {"city_id": cityId},
+        );
+        debugPrint("JobNearMapPage profile city update (city_id: $cityId): $res");
+      }
+    } catch (e) {
+      debugPrint("Error updating city in profile: $e");
+    }
+
+    // 4. Resolve coordinates for the newly selected city
+    await _resolveCoordinatesForCity(cityId, cityName);
+
+    // 5. Refresh nearby jobs API using the updated city_id
+    await _fetchNearbyJobs();
+  }
+
+  /// Shows the city selection dialog to let the user switch cities
+  void _showLocationSelectionDialog() {
+    final TextEditingController searchController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        List<CityModel> allCities = _locationService.cachedCities ?? [];
+        List<CityModel> filteredCities = List.from(allCities);
+        bool isLoading = allCities.isEmpty;
+        String? errorMessage;
+
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            void fetchDialogCities() async {
+              try {
+                final list = await _locationService.getCities();
+                if (dialogContext.mounted) {
+                  setDialogState(() {
+                    allCities = list;
+                    filteredCities = list;
+                    isLoading = false;
+                  });
+                }
+              } catch (e) {
+                if (dialogContext.mounted) {
+                  setDialogState(() {
+                    errorMessage = "Failed to load cities";
+                    isLoading = false;
+                  });
+                }
+              }
+            }
+
+            if (isLoading && errorMessage == null) {
+              fetchDialogCities();
+            }
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: const Text(
+                "Select City",
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: searchController,
+                      decoration: InputDecoration(
+                        hintText: "Search city...",
+                        prefixIcon: const Icon(
+                          Icons.search_rounded,
+                          size: 20,
+                          color: GenZ.purple,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppColors.border),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                      onChanged: (val) {
+                        final q = val.trim().toLowerCase();
+                        setDialogState(() {
+                          if (q.isEmpty) {
+                            filteredCities = List.from(allCities);
+                          } else {
+                            filteredCities = allCities
+                                .where((c) =>
+                                    c.cityName.toLowerCase().contains(q) ||
+                                    (c.stateName != null &&
+                                        c.stateName!.toLowerCase().contains(q)))
+                                .toList();
+                          }
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 280),
+                      child: isLoading
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(24.0),
+                                child: CircularProgressIndicator(
+                                  color: GenZ.purple,
+                                ),
+                              ),
+                            )
+                          : errorMessage != null
+                              ? Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16.0),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          errorMessage!,
+                                          style: const TextStyle(color: Colors.red),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        TextButton(
+                                          onPressed: () {
+                                            setDialogState(() {
+                                              isLoading = true;
+                                              errorMessage = null;
+                                            });
+                                            fetchDialogCities();
+                                          },
+                                          child: const Text("Retry"),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                )
+                              : filteredCities.isEmpty
+                                  ? const Center(
+                                      child: Padding(
+                                        padding: EdgeInsets.all(16.0),
+                                        child: Text(
+                                          "No cities found",
+                                          style: TextStyle(
+                                            color: AppColors.textSecondary,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  : ListView.separated(
+                                      shrinkWrap: true,
+                                      itemCount: filteredCities.length,
+                                      separatorBuilder: (_, _) =>
+                                          const Divider(height: 1),
+                                      itemBuilder: (context, index) {
+                                        final city = filteredCities[index];
+                                        final isSelected = _selectedCityId == city.id ||
+                                            _selectedCityName.toLowerCase() ==
+                                                city.cityName.toLowerCase();
+
+                                        return ListTile(
+                                          dense: true,
+                                          leading: Icon(
+                                            Icons.location_city_rounded,
+                                            color: isSelected
+                                                ? GenZ.purple
+                                                : AppColors.unselected,
+                                          ),
+                                          title: Text(
+                                            city.cityName,
+                                            style: TextStyle(
+                                              fontWeight: isSelected
+                                                  ? FontWeight.bold
+                                                  : FontWeight.w600,
+                                              color: isSelected
+                                                  ? GenZ.purple
+                                                  : AppColors.textPrimary,
+                                            ),
+                                          ),
+                                          subtitle: city.stateName != null
+                                              ? Text(
+                                                  city.stateName!,
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                  ),
+                                                )
+                                              : null,
+                                          trailing: isSelected
+                                              ? const Icon(
+                                                  Icons.check_circle_rounded,
+                                                  color: GenZ.purple,
+                                                  size: 20,
+                                                )
+                                              : null,
+                                          onTap: () async {
+                                            final selectedId = city.id;
+                                            final selectedName = city.cityName;
+                                            Navigator.pop(dialogCtx);
+                                            await _updateProfileCity(
+                                              cityId: selectedId,
+                                              cityName: selectedName,
+                                            );
+                                          },
+                                        );
+                                      },
+                                    ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text("Cancel"),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Navigates to the existing JobDescriptionPage with actual job details
+  void _navigateToJobDescription(Map<String, dynamic> job, double? distanceKm) {
+    final int numericJobId = int.tryParse(job["id"]?.toString() ?? '0') ?? 0;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => JobDescriptionPage(
+          jobPostId: numericJobId,
+          companyName: (job["company"] ?? "Company").toString(),
+          jobTitle: (job["title"] ?? "Job Title").toString(),
+          salary: (job["salary"] ?? "").toString(),
+          experience: (job["experience"] ?? "").toString(),
+          distance: _formatDistance(distanceKm),
+          description: (job["description"] ?? "").toString(),
+          skills: (job["requiredSkills"] is List)
+              ? (job["requiredSkills"] as List).map((e) => e.toString()).toList()
+              : const ["Communication", "Problem Solving"],
+          rating: (job["ratings"] as num?)?.toDouble() ?? 4.2,
+          reviewCount: "${job['reviews']} reviews",
+          logoText: (job["logoText"] ?? "J").toString(),
+          logoColor: (job["logoColor"] is Color) ? job["logoColor"] as Color : GenZ.purple,
+          totalVacancies: (job["vacancies"] as num?)?.toInt() ?? 1,
+          remainingVacancies: (job["remaining_vacancies"] as num?)?.toInt() ?? 1,
+          postedDate: (job["postedTime"] ?? "Recently").toString(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _fetchUserSavedJobs() async {
+    try {
+      final userDetails = await SessionManager.getUserDetails();
+      final userId = (userDetails['id'] is int)
+          ? userDetails['id'] as int
+          : int.tryParse(userDetails['id']?.toString() ?? '0') ?? 0;
+      if (userId > 0) {
+        final savedJobs = await SavedJobService().getSavedJobsByUser(userId);
+        if (mounted) {
+          setState(() {
+            _savedJobIds.clear();
+            for (final sj in savedJobs) {
+              _savedJobIds.add(sj.jobPostId.toString());
+              if (sj.jobPost.id > 0) {
+                _savedJobIds.add(sj.jobPost.id.toString());
+              }
+            }
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching saved jobs for user: $e");
+    }
+  }
+
+  Future<void> _fetchUserApplications() async {
+    try {
+      final userDetails = await SessionManager.getUserDetails();
+      final userId = (userDetails['id'] is int)
+          ? userDetails['id'] as int
+          : int.tryParse(userDetails['id']?.toString() ?? '0') ?? 0;
+      if (userId > 0) {
+        final apps = await JobApplicationService().getUserApplications(userId);
+        if (mounted) {
+          setState(() {
+            _appliedJobIds.clear();
+            for (final app in apps) {
+              if (app.jobPostId > 0) {
+                _appliedJobIds.add(app.jobPostId.toString());
+              }
+            }
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching applications for user: $e");
+    }
+  }
+
+  Future<void> _fetchNearbyJobs() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    _fetchUserSavedJobs();
+    _fetchUserApplications();
+
+    try {
+      final cityId = _selectedCityId;
+      if (cityId == null || cityId <= 0) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = "Please select a city to see nearby jobs.";
+            _nearbyJobs = [];
+          });
+        }
+        return;
+      }
+
+      // 1. Fetch nearby job posts via API (/jobpost/nearby) with cityId filter
+      final response = await ApiService().getNearbyJobs(
+        _candidateLat,
+        _candidateLng,
+        radius: _maxTravelRadius,
+        cityId: cityId,
+      );
+
+      List<dynamic> rawJobs = [];
+      if (response != null && (response['success'] == true || response['status'] == true)) {
+        if (response['data'] is List) {
+          rawJobs = response['data'];
+        } else if (response['jobPosts'] is List) {
+          rawJobs = response['jobPosts'];
+        } else if (response['jobs'] is List) {
+          rawJobs = response['jobs'];
+        }
+      } else if (response != null && response['message'] != null) {
+        _errorMessage = response['message'].toString();
+      }
+
+      // 2. Parse dynamic job posts and ensure strict city_id match (no fallback to other cities)
+      final List<Map<String, dynamic>> parsed = [];
+      for (int i = 0; i < rawJobs.length; i++) {
+        final item = rawJobs[i];
+        if (item is Map<String, dynamic>) {
+          final jobCityId = item['city_id'] ?? item['cityId'];
+          final parsedJobCityId = jobCityId is int
+              ? jobCityId
+              : int.tryParse(jobCityId?.toString() ?? '');
+          // Strictly verify city_id
+          if (parsedJobCityId == null || parsedJobCityId == cityId) {
+            parsed.add(_parseJobMap(item, i, rawJobs.length));
+          }
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _nearbyJobs = parsed;
+          _isLoading = false;
+          _selectedJobIndex = 0;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error fetching dynamic nearby jobs: $e");
+      if (mounted) {
+        setState(() {
+          _nearbyJobs = [];
+          _isLoading = false;
+          _errorMessage = "Failed to load jobs for $_selectedCityName. Please check your connection.";
+        });
+      }
+    }
+  }
+
+  Map<String, dynamic> _parseJobMap(
+    Map<String, dynamic> json,
+    int index,
+    int total,
+  ) {
+    final String jobId =
+        (json['id'] ?? json['_id'] ?? 'job_$index').toString();
+    final String title = (json['title'] ??
+            json['job_title'] ??
+            json['jobTitle'] ??
+            'Job Opening')
+        .toString();
+    final String company = (json['company'] ??
+            json['company_name'] ??
+            json['companyName'] ??
+            json['job_category'] ??
+            'Employer')
+        .toString();
+
+    final String logoText = company.trim().isNotEmpty
+        ? company.trim().substring(0, 1).toUpperCase()
+        : 'J';
+
+    final List<Color> logoColors = [
+      const Color(0xFF1E3A8A),
+      const Color(0xFF007ACC),
+      const Color(0xFFE11D48),
+      const Color(0xFF6D28D9),
+      const Color(0xFFEA580C),
+      const Color(0xFF3B82F6),
+      const Color(0xFF10B981),
+    ];
+    final Color logoColor = logoColors[index % logoColors.length];
+
+    final int minSalaryVal = json['min_salary'] is num
+        ? (json['min_salary'] as num).toInt()
+        : (json['salary_min'] is num
+            ? (json['salary_min'] as num).toInt()
+            : int.tryParse(
+                    json['min_salary']?.toString() ??
+                        json['salary_min']?.toString() ??
+                        '25000',
+                  ) ??
+                25000);
+
+    final int maxSalaryVal = json['max_salary'] is num
+        ? (json['max_salary'] as num).toInt()
+        : (json['salary_max'] is num
+            ? (json['salary_max'] as num).toInt()
+            : int.tryParse(
+                    json['max_salary']?.toString() ??
+                        json['salary_max']?.toString() ??
+                        '45000',
+                  ) ??
+                45000);
+
+    final String salary = json['salary'] != null
+        ? json['salary'].toString()
+        : "₹${minSalaryVal.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} - ₹${maxSalaryVal.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}";
+
+    final String experience = (json['experience'] ??
+            json['experience_required'] ??
+            json['experienceRequired'] ??
+            'Fresher')
+        .toString();
+
+    final String employmentType = (json['employmentType'] ??
+            json['employment_type'] ??
+            json['job_type'] ??
+            'Full-time')
+        .toString();
+
+    final String location = (json['location'] ??
+            json['city'] ??
+            json['address'] ??
+            json['locality'] ??
+            'Nearby')
+        .toString();
+
+    final String postedTime = (json['postedTime'] ??
+            json['posted_on'] ??
+            json['created_at'] ??
+            'Recently')
+        .toString();
+
+    final bool isVerified = json['isVerified'] == true ||
+        json['is_verified'] == true ||
+        json['is_verified'] == 1 ||
+        json['verified'] == true;
+
+    final bool isUrgent = json['isUrgent'] == true ||
+        json['is_urgent'] == true ||
+        json['is_urgent'] == 1 ||
+        json['urgent'] == true;
+
+    // Lat / Lng parsing
+    final rawJobLat = json['latitude'] ?? json['lat'];
+    final rawJobLng = json['longitude'] ?? json['lng'];
+    final double? parsedJobLat = rawJobLat is num
+        ? rawJobLat.toDouble()
+        : double.tryParse(rawJobLat?.toString() ?? '');
+    final double? parsedJobLng = rawJobLng is num
+        ? rawJobLng.toDouble()
+        : double.tryParse(rawJobLng?.toString() ?? '');
+    final bool hasValidCoords = parsedJobLat != null &&
+        parsedJobLng != null &&
+        parsedJobLat.isFinite &&
+        parsedJobLng.isFinite;
+
+    final double jobLat = hasValidCoords
+        ? parsedJobLat
+        : (_candidateLat + (index - total / 2) * 0.02);
+
+    final double jobLng = hasValidCoords
+        ? parsedJobLng
+        : (_candidateLng + ((index * 3) % 7 - 3) * 0.02);
+
+    // Dynamic screen pin vector layout (dx, dy between 0.15 and 0.85)
+    double dx;
+    double dy;
+
+    if (json['dx'] is num && json['dy'] is num) {
+      dx = (json['dx'] as num).toDouble();
+      dy = (json['dy'] as num).toDouble();
+    } else {
+      double dLat = jobLat - _candidateLat;
+      double dLng = jobLng - _candidateLng;
+
+      dx = (0.5 + dLng * 4.0).clamp(0.15, 0.85);
+      dy = (0.5 - dLat * 4.0).clamp(0.15, 0.85);
+
+      if (total > 1 && (dx - 0.5).abs() < 0.02 && (dy - 0.5).abs() < 0.02) {
+        double angle = (2 * math.pi * index) / total;
+        double r = 0.25;
+        dx = (0.5 + r * math.cos(angle)).clamp(0.15, 0.85);
+        dy = (0.5 + r * math.sin(angle)).clamp(0.15, 0.85);
+      }
+    }
+
+    final String description = (json['description'] ??
+            json['job_summary'] ??
+            'We are looking for a qualified candidate to join our growing team.')
+        .toString();
+
+    List<String> responsibilities = [];
+    if (json['responsibilities'] is List) {
+      responsibilities = (json['responsibilities'] as List)
+          .map((e) => e.toString())
+          .toList();
+    } else if (json['responsibilities'] is String) {
+      responsibilities = [json['responsibilities'].toString()];
+    } else {
+      responsibilities = [
+        "Collaborate with cross-functional teams.",
+        "Perform regular daily duties and assigned projects.",
+        "Maintain high standards of accuracy and performance.",
+      ];
+    }
+
+    List<String> requiredSkills = [];
+    if (json['requiredSkills'] is List) {
+      requiredSkills = (json['requiredSkills'] as List)
+          .map((e) => e.toString())
+          .toList();
+    } else if (json['skills'] is List) {
+      requiredSkills =
+          (json['skills'] as List).map((e) => e.toString()).toList();
+    } else if (json['skills'] is String) {
+      requiredSkills = (json['skills'] as String)
+          .replaceAll('[', '')
+          .replaceAll(']', '')
+          .replaceAll('"', '')
+          .split(',')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    } else {
+      requiredSkills = ["Communication", "Problem Solving", "Teamwork"];
+    }
+
+    return {
+      "id": jobId,
+      "title": title,
+      "company": company,
+      "logoText": logoText,
+      "logoColor": logoColor,
+      "salary": salary,
+      "minSalaryVal": minSalaryVal,
+      "experience": experience,
+      "employmentType": employmentType,
+      "location": location,
+      "postedTime": postedTime,
+      "isVerified": isVerified,
+      "isUrgent": isUrgent,
+      "lat": jobLat,
+      "lng": jobLng,
+      "rawLat": parsedJobLat,
+      "rawLng": parsedJobLng,
+      "hasValidCoords": hasValidCoords,
+      "dx": dx,
+      "dy": dy,
+      "description": description,
+      "responsibilities": responsibilities,
+      "requiredSkills": requiredSkills,
+      "qualification": (json['qualification'] ?? 'Graduate').toString(),
+      "incentives":
+          (json['incentives'] ?? 'Performance bonuses & health benefits')
+              .toString(),
+      "vacancies": num.tryParse(
+            json['vacancies']?.toString() ??
+                json['number_of_vacancies']?.toString() ??
+                '1',
+          )?.toInt() ??
+          1,
+      "shift": (json['shift'] ?? 'Day Shift').toString(),
+      "workingHours": (json['workingHours'] ?? '9:00 AM - 6:00 PM').toString(),
+      "weeklyOff": (json['weeklyOff'] ?? 'Sunday').toString(),
+      "benefits":
+          (json['benefits'] ?? 'Health insurance, paid leave').toString(),
+      "deadline": (json['deadline'] ?? 'Open until filled').toString(),
+      "companyProfile": (json['companyProfile'] ??
+              '$company is a verified hiring employer.')
+          .toString(),
+      "companySize": (json['companySize'] ?? '50+ employees').toString(),
+      "ratings": double.tryParse(
+            json['ratings']?.toString() ??
+                json['rating']?.toString() ??
+                '4.2',
+          ) ??
+          4.2,
+      "reviews": int.tryParse(
+            json['reviews']?.toString() ??
+                json['reviews_count']?.toString() ??
+                '25',
+          ) ??
+          25,
+      "isClosed": json['isClosed'] == true || json['status'] == 'Closed',
+      "isExpired": json['isExpired'] == true || json['status'] == 'Expired',
+    };
+  }
 
   // Areas list for quick chips
   final List<String> popularAreas = [
@@ -328,6 +893,10 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
         _searchQuery = _searchController.text;
       });
     });
+
+    _loadCityAndInitLocation();
+    _fetchUserSavedJobs();
+    _fetchUserApplications();
 
     // Start entry animations with sequential delay
     Future.delayed(const Duration(milliseconds: 150), () {
@@ -361,9 +930,30 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
 
   double _degToRad(double deg) => deg * (math.pi / 180);
 
-  String _formatDistance(double km) {
-    if (km < 1) {
-      return "${(km * 1000).round()} m away";
+  double? _getJobDistanceKm(Map<String, dynamic> job) {
+    if (!_hasCandidateCoordinates) {
+      return null;
+    }
+    final bool hasValid = job["hasValidCoords"] == true;
+    if (!hasValid) {
+      return null;
+    }
+    final double? jLat = job["rawLat"] as double?;
+    final double? jLng = job["rawLng"] as double?;
+    if (jLat == null || jLng == null) return null;
+    return _distanceKm(_candidateLat, _candidateLng, jLat, jLng);
+  }
+
+  String _formatDistance(double? km) {
+    if (km == null || km.isNaN || km.isInfinite) {
+      return "Distance unavailable";
+    }
+    if (km.abs() < 0.0001) {
+      return "0 m away";
+    }
+    if (km < 1.0) {
+      final meters = (km * 1000).round();
+      return "$meters m away";
     }
     return "${km.toStringAsFixed(1)} km away";
   }
@@ -371,16 +961,11 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
   @override
   Widget build(BuildContext context) {
     // Filter jobs list based on travel radius, search queries, and filters sheet
-    final filteredJobs = nearbyJobs.where((job) {
-      final double distance = _distanceKm(
-        _candidateLat,
-        _candidateLng,
-        job["lat"] as double,
-        job["lng"] as double,
-      );
+    final filteredJobs = _nearbyJobs.where((job) {
+      final double? distance = _getJobDistanceKm(job);
 
       // Distance limit constraint (Radius Selection)
-      if (distance > _maxTravelRadius) return false;
+      if (distance != null && distance > _maxTravelRadius) return false;
 
       // Text query match (Area wise search)
       final query = _searchQuery.trim().toLowerCase();
@@ -423,14 +1008,7 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
 
     final hasResults = filteredJobs.isNotEmpty;
     final job = hasResults ? filteredJobs[_selectedJobIndex] : null;
-    final distanceKm = job != null
-        ? _distanceKm(
-            _candidateLat,
-            _candidateLng,
-            job["lat"] as double,
-            job["lng"] as double,
-          )
-        : 0.0;
+    final double? distanceKm = job != null ? _getJobDistanceKm(job) : null;
 
     return Scaffold(
       backgroundColor: AppColors.scaffoldBackground,
@@ -446,29 +1024,126 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
           ),
         ),
         elevation: 0,
-        centerTitle: true,
+        centerTitle: false,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
           icon: const Icon(Icons.arrow_back, color: AppColors.buttonText),
         ),
-        title: const Text(
-          "Jobs Near You Map",
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
+        title: GestureDetector(
+          onTap: _showLocationSelectionDialog,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF10B981),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  const Text(
+                    "Live Map & Commute Radar",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    "$_selectedCityName • ${_maxTravelRadius.toInt()} KM Radial Grid",
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.9),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 3),
+                  Icon(
+                    Icons.arrow_drop_down,
+                    size: 16,
+                    color: Colors.white.withOpacity(0.9),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
         actions: [
+          // City Change Pill
+          GestureDetector(
+            onTap: _showLocationSelectionDialog,
+            child: Container(
+              margin: const EdgeInsets.only(top: 11, bottom: 11, right: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.18),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withOpacity(0.35)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.location_on, size: 13, color: Colors.white),
+                  const SizedBox(width: 3),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 75),
+                    child: Text(
+                      _selectedCityName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.arrow_drop_down, size: 14, color: Colors.white),
+                ],
+              ),
+            ),
+          ),
+
+          // Pins Count Pill Badge
+          Container(
+            margin: const EdgeInsets.only(right: 6, top: 12, bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xFF00D2FF),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Center(
+              child: Text(
+                "${filteredJobs.length} Pins",
+                style: const TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+
           // Heatmap Switch Button
           IconButton(
             icon: Icon(
               _isHeatmapView
-                  ? Icons.map_rounded
-                  : Icons.local_fire_department_rounded,
-              color: _isHeatmapView ? GenZ.coral : Colors.white,
+                  ? Icons.local_fire_department_rounded
+                  : Icons.local_fire_department_outlined,
+              color: _isHeatmapView ? const Color(0xFFFF4D4D) : Colors.white,
             ),
-            tooltip: "Heatmap View",
+            tooltip: "Toggle Heatmap",
             onPressed: () {
               setState(() {
                 _isHeatmapView = !_isHeatmapView;
@@ -477,8 +1152,8 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
                 SnackBar(
                   content: Text(
                     _isHeatmapView
-                        ? "Heatmap View Active"
-                        : "Standard Pin View Active",
+                        ? "🔥 Heatmap Mode Enabled (Red = High Job Density)"
+                        : "📍 Standard Pin Mode Enabled",
                   ),
                   duration: const Duration(seconds: 1),
                 ),
@@ -496,48 +1171,184 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
               child: _fakeMapBackground(
                 drawHeatmap: _isHeatmapView,
                 radiusKm: _maxTravelRadius,
+                jobOffsets: filteredJobs
+                    .map((j) => Offset(j["dx"] as double, j["dy"] as double))
+                    .toList(),
               ),
             ),
 
             // ── CURRENT LOCATION INDICATOR ──
             const Center(child: _CurrentLocationIndicator()),
 
-            // ── JOB PINS (standard pins showing company branding with bounce-in animations) ──
-            if (hasResults && !_isHeatmapView)
+            // ── LOADING INDICATOR ──
+            if (_isLoading)
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.12),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: GenZ.purple,
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Text(
+                        "Loading nearby jobs from API...",
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: GenZ.purpleDark,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            // ── EMPTY STATE IF 0 DYNAMIC JOBS IN DATABASE FOR SELECTED CITY ──
+            if (!_isLoading && _nearbyJobs.isEmpty)
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                  margin: const EdgeInsets.symmetric(horizontal: 24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.12),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: GenZ.lavenderSoft.withOpacity(0.4),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.work_off_rounded,
+                          size: 30,
+                          color: GenZ.purple,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _errorMessage ?? "No jobs found in $_selectedCityName",
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        "There are currently no job openings matching $_selectedCityName within ${_maxTravelRadius.toInt()} km.",
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: _showLocationSelectionDialog,
+                            icon: const Icon(Icons.location_city_rounded, size: 16),
+                            label: const Text("Change City"),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: GenZ.purple,
+                              side: const BorderSide(color: GenZ.purple),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          ElevatedButton.icon(
+                            onPressed: _fetchNearbyJobs,
+                            icon: const Icon(Icons.refresh_rounded, size: 16),
+                            label: const Text("Refresh"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: GenZ.purple,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            // ── JOB PINS (Rich callout pills matching live commute radar reference) ──
+            if (hasResults)
               LayoutBuilder(
                 builder: (context, constraints) {
                   return Stack(
                     children: List.generate(filteredJobs.length, (i) {
                       final j = filteredJobs[i];
                       final isSelected = i == _selectedJobIndex;
+                      final double? distance = _getJobDistanceKm(j);
+                      final double rating = (j["ratings"] as num?)?.toDouble() ?? 4.5;
+                      final double dx = j["dx"] as double;
+                      final double dy = j["dy"] as double;
+
+                      final double leftPos = (constraints.maxWidth * dx - 55).clamp(8.0, constraints.maxWidth - 130.0);
+                      final double topPos = (constraints.maxHeight * dy - 40).clamp(8.0, constraints.maxHeight - 55.0);
+
                       return AnimatedPositioned(
                         duration: const Duration(milliseconds: 200),
                         curve: Curves.easeOut,
-                        left:
-                            constraints.maxWidth * (j["dx"] as double) -
-                            (isSelected ? 26 : 21),
-                        top:
-                            constraints.maxHeight * (j["dy"] as double) -
-                            (isSelected ? 54 : 44),
+                        left: leftPos,
+                        top: topPos,
                         child: TweenAnimationBuilder<double>(
                           tween: Tween<double>(begin: 0.0, end: 1.0),
-                          duration: Duration(
-                            milliseconds: 500 + (i * 120),
-                          ), // Staggered entry animation!
+                          duration: Duration(milliseconds: 400 + (i * 70)),
                           curve: Curves.elasticOut,
                           builder: (context, scale, child) {
                             return Transform.scale(scale: scale, child: child);
                           },
                           child: GestureDetector(
                             onTap: () => setState(() => _selectedJobIndex = i),
-                            child: _PulsingMarkerHalo(
+                            child: _mapPinCallout(
                               isSelected: isSelected,
-                              color: j["logoColor"] as Color,
-                              child: _mapPin(
-                                isSelected: isSelected,
-                                logoText: j["logoText"] as String,
-                                logoColor: j["logoColor"] as Color,
-                              ),
+                              title: j["title"] as String,
+                              company: j["company"] as String,
+                              logoText: j["logoText"] as String,
+                              logoColor: j["logoColor"] as Color,
+                              distanceKm: distance,
+                              rating: rating,
                             ),
                           ),
                         ),
@@ -719,18 +1530,17 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
                 children: [
                   // Search This Area Button
                   GestureDetector(
-                    onTap: () {
+                    onTap: () async {
                       setState(() => _isSearchingThisArea = true);
-                      Future.delayed(const Duration(milliseconds: 800), () {
-                        if (!mounted) return;
-                        setState(() => _isSearchingThisArea = false);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text("Refreshed jobs in this viewport"),
-                            duration: Duration(seconds: 1),
-                          ),
-                        );
-                      });
+                      await _fetchNearbyJobs();
+                      if (!mounted) return;
+                      setState(() => _isSearchingThisArea = false);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Refreshed jobs in this area from API"),
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
                     },
                     child: Container(
                       margin: const EdgeInsets.only(bottom: 10),
@@ -894,69 +1704,135 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
   Widget _fakeMapBackground({
     required bool drawHeatmap,
     required double radiusKm,
+    required List<Offset> jobOffsets,
   }) {
     return Container(
       color: const Color(0xFFEDF1F5),
       child: CustomPaint(
-        painter: _FakeMapPainter(drawHeatmap: drawHeatmap, radiusKm: radiusKm),
+        painter: _FakeMapPainter(
+          drawHeatmap: drawHeatmap,
+          radiusKm: radiusKm,
+          jobOffsets: jobOffsets,
+        ),
         child: Container(),
       ),
     );
   }
 
-  // Branded Custom Map Pin showing company letter and brand color
-  Widget _mapPin({
+  // Styled Callout Map Pin (matching reference screenshot)
+  Widget _mapPinCallout({
     required bool isSelected,
+    required String title,
+    required String company,
     required String logoText,
     required Color logoColor,
+    required double? distanceKm,
+    required double rating,
   }) {
-    final double size = isSelected ? 44 : 34;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: size,
-          height: size,
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
           decoration: BoxDecoration(
-            color: isSelected ? GenZ.purpleDark : Colors.white,
-            shape: BoxShape.circle,
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: isSelected ? Colors.white : logoColor.withOpacity(0.8),
-              width: isSelected ? 2.5 : 2,
+              color: isSelected ? GenZ.purple : const Color(0xFF3B82F6).withOpacity(0.5),
+              width: isSelected ? 2.5 : 1.5,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.15),
-                blurRadius: isSelected ? 8 : 4,
-                offset: const Offset(0, 2),
+                color: isSelected
+                    ? GenZ.purple.withOpacity(0.35)
+                    : Colors.black.withOpacity(0.12),
+                blurRadius: isSelected ? 10 : 5,
+                offset: const Offset(0, 3),
               ),
             ],
           ),
-          child: Center(
-            child: Container(
-              width: size - 8,
-              height: size - 8,
-              decoration: BoxDecoration(
-                color: logoColor,
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  logoText,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: isSelected ? 15 : 12,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Avatar circle with initial letter
+              Container(
+                width: isSelected ? 24 : 20,
+                height: isSelected ? 24 : 20,
+                decoration: BoxDecoration(
+                  color: logoColor,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    logoText,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: isSelected ? 12 : 10,
+                    ),
                   ),
                 ),
               ),
-            ),
+              const SizedBox(width: 6),
+
+              // Title & Info
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 105),
+                    child: Text(
+                      company.isNotEmpty ? "$logoText • $company" : title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: isSelected ? 11.5 : 10.5,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF0F172A),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _formatDistance(distanceKm),
+                        style: const TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2563EB),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(
+                        Icons.star_rounded,
+                        size: 10,
+                        color: Color(0xFFF59E0B),
+                      ),
+                      Text(
+                        rating.toStringAsFixed(1),
+                        style: const TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF475569),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
-        Icon(
-          Icons.arrow_drop_down_rounded,
-          color: isSelected ? GenZ.purpleDark : Colors.white,
-          size: 18,
+
+        // Pin Stem Pointer
+        CustomPaint(
+          size: const Size(12, 6),
+          painter: _PinStemPainter(
+            color: isSelected ? GenZ.purple : Colors.white,
+          ),
         ),
       ],
     );
@@ -990,19 +1866,21 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
     );
   }
 
-  // 5.1/5.2 Job Preview Card
-  Widget _jobBottomCard(Map<String, dynamic> job, double distanceKm) {
-    final String jobId = job["id"] as String;
-    final bool isSaved = _savedJobIds.contains(jobId);
+  // Job Card preview (matching reference screenshot bottom card)
+  Widget _jobBottomCard(Map<String, dynamic> job, double? distanceKm) {
+    final double rating = (job["ratings"] as num?)?.toDouble() ?? 4.5;
+    final int bikeMins = distanceKm != null ? (distanceKm * 3.0).round().clamp(2, 90) : 15;
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(18),
+    return GestureDetector(
+      onTap: () => _navigateToJobDescription(job, distanceKm),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.10),
+            color: Colors.black.withOpacity(0.12),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -1014,19 +1892,19 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Logo
+              // Avatar circle with logo text
               Container(
-                width: 46,
-                height: 46,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
                   color: job["logoColor"] as Color,
-                  borderRadius: BorderRadius.circular(12),
+                  shape: BoxShape.circle,
                 ),
                 child: Center(
                   child: Text(
                     job["logoText"] as String,
                     style: const TextStyle(
-                      color: AppColors.buttonText,
+                      color: Colors.white,
                       fontWeight: FontWeight.bold,
                       fontSize: 18,
                     ),
@@ -1035,7 +1913,7 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
               ),
               const SizedBox(width: 12),
 
-              // Title / Company / Distance
+              // Title / Company / Position
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1049,8 +1927,8 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 14.5,
-                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
                               color: AppColors.textPrimary,
                             ),
                           ),
@@ -1071,132 +1949,119 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 12.5,
                         color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w500,
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.location_on_rounded,
-                          size: 12,
-                          color: GenZ.purple,
-                        ),
-                        const SizedBox(width: 2),
-                        Expanded(
-                          child: Text(
-                            "${_formatDistance(distanceKm)} • ${job["location"]}",
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 11.5,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ),
-                      ],
                     ),
                   ],
                 ),
               ),
 
-              // Save button
-              GestureDetector(
-                onTap: () {
-                  setState(() {
-                    if (isSaved) {
-                      _savedJobIds.remove(jobId);
-                    } else {
-                      _savedJobIds.add(jobId);
-                    }
-                  });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        isSaved
-                            ? "Removed from saved list"
-                            : "Job Saved Successfully",
+              // Rating & Distance (Right side)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.star_rounded,
+                        size: 16,
+                        color: Color(0xFFF59E0B),
                       ),
-                      duration: const Duration(seconds: 1),
+                      const SizedBox(width: 2),
+                      Text(
+                        rating.toStringAsFixed(1),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _formatDistance(distanceKm),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF2563EB),
                     ),
-                  );
-                },
-                child: Icon(
-                  isSaved
-                      ? Icons.bookmark_rounded
-                      : Icons.bookmark_border_rounded,
-                  color: isSaved ? GenZ.purpleDark : AppColors.textHint,
-                  size: 22,
-                ),
+                  ),
+                ],
               ),
             ],
           ),
           const SizedBox(height: 10),
 
-          // Experience / Employment type chips
-          Row(
-            children: [
-              _chip(
-                job["experience"] as String,
-                icon: Icons.work_outline_rounded,
-              ),
-              const SizedBox(width: 6),
-              _chip(
-                job["employmentType"] as String,
-                icon: Icons.schedule_rounded,
-              ),
-              const Spacer(),
-              Text(
-                job["postedTime"] as String,
-                style: const TextStyle(
-                  fontSize: 10.5,
-                  color: AppColors.textHint,
-                ),
-              ),
-            ],
-          ),
+          // Divider
+          Divider(color: Colors.grey.withOpacity(0.18), height: 1),
           const SizedBox(height: 10),
 
-          // Salary + View Job Button
+          // Location & Commute time badge
           Row(
             children: [
+              const Icon(
+                Icons.location_on_rounded,
+                size: 15,
+                color: Color(0xFFEF4444),
+              ),
+              const SizedBox(width: 4),
               Expanded(
                 child: Text(
-                  job["salary"] as String,
+                  job["location"] as String,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: GenZ.purpleDark,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF475569),
                   ),
                 ),
               ),
-              SizedBox(
-                width: 100,
-                height: 38,
-                child: ElevatedButton(
-                  onPressed: () => _openJobDetailsBottomSheet(job, distanceKm),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: GenZ.purple,
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.zero,
-                    minimumSize: const Size(100, 38),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.directions_bike_rounded,
+                      size: 14,
+                      color: Color(0xFF2563EB),
                     ),
-                    elevation: 0,
-                  ),
-                  child: const FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      "View Job",
-                      maxLines: 1,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
+                    const SizedBox(width: 4),
+                    Text(
+                      "~$bikeMins mins bike",
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2563EB),
                       ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => _openJobDetailsBottomSheet(job, distanceKm),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: GenZ.purple,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text(
+                    "View Job",
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -1205,8 +2070,9 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   // 5.3 Floating Radius Selection Dialog
   void _showRadiusSliderSheet() {
@@ -1546,8 +2412,9 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
   }
 
   // 7. Job Details Overlay Bottom Sheet (displays comprehensive job & employer details)
-  void _openJobDetailsBottomSheet(Map<String, dynamic> job, double distanceKm) {
+  void _openJobDetailsBottomSheet(Map<String, dynamic> job, double? distanceKm) {
     final String jobId = job["id"] as String;
+    final int numericJobId = int.tryParse(jobId) ?? 0;
 
     showModalBottomSheet(
       context: context,
@@ -1560,10 +2427,15 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
         ),
       ),
       builder: (context) {
+        bool isSavingJob = false;
+        bool isApplyingJob = false;
+
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            final bool isApplied = _appliedJobIds.contains(jobId);
-            final bool isSaved = _savedJobIds.contains(jobId);
+            final bool isApplied = _appliedJobIds.contains(jobId) ||
+                (numericJobId > 0 && _appliedJobIds.contains(numericJobId.toString()));
+            final bool isSaved = _savedJobIds.contains(jobId) ||
+                (numericJobId > 0 && _savedJobIds.contains(numericJobId.toString()));
             final bool isClosed = job["isClosed"] == true;
             final bool isExpired = job["isExpired"] == true;
 
@@ -1661,22 +2533,136 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
                         ),
                       ),
                       IconButton(
-                        icon: Icon(
-                          isSaved
-                              ? Icons.bookmark_rounded
-                              : Icons.bookmark_border_rounded,
-                        ),
+                        icon: isSavingJob
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: GenZ.purpleDark,
+                                ),
+                              )
+                            : Icon(
+                                isSaved
+                                    ? Icons.bookmark_rounded
+                                    : Icons.bookmark_border_rounded,
+                              ),
                         color: isSaved ? GenZ.purpleDark : Colors.grey,
-                        onPressed: () {
-                          setState(() {
-                            if (isSaved) {
-                              _savedJobIds.remove(jobId);
-                            } else {
-                              _savedJobIds.add(jobId);
-                            }
-                          });
-                          setSheetState(() {});
-                        },
+                        onPressed: isSavingJob
+                            ? null
+                            : () async {
+                                final userDetails =
+                                    await SessionManager.getUserDetails();
+                                final userId = (userDetails['id'] is int)
+                                    ? userDetails['id'] as int
+                                    : int.tryParse(
+                                            userDetails['id']?.toString() ??
+                                                '0') ??
+                                        0;
+
+                                if (userId == 0) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                            "Please log in to save jobs."),
+                                        backgroundColor: AppColors.error,
+                                      ),
+                                    );
+                                  }
+                                  return;
+                                }
+
+                                setSheetState(() {
+                                  isSavingJob = true;
+                                });
+
+                                try {
+                                  if (isSaved) {
+                                    final res = await SavedJobService()
+                                        .deleteSavedJob(
+                                      userId: userId,
+                                      jobPostId: numericJobId,
+                                    );
+                                    if (res['success'] == true) {
+                                      setState(() {
+                                        _savedJobIds.remove(jobId);
+                                        _savedJobIds
+                                            .remove(numericJobId.toString());
+                                      });
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                                "Job removed from saved jobs"),
+                                            duration: Duration(seconds: 2),
+                                          ),
+                                        );
+                                      }
+                                    } else {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(res['message']
+                                                    ?.toString() ??
+                                                "Failed to remove saved job"),
+                                            backgroundColor: AppColors.error,
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  } else {
+                                    final res = await SavedJobService().saveJob(
+                                      userId: userId,
+                                      jobPostId: numericJobId,
+                                    );
+                                    if (res['success'] == true) {
+                                      setState(() {
+                                        _savedJobIds.add(jobId);
+                                        _savedJobIds
+                                            .add(numericJobId.toString());
+                                      });
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                                "Job saved successfully!"),
+                                            duration: Duration(seconds: 2),
+                                          ),
+                                        );
+                                      }
+                                    } else {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(res['message']
+                                                    ?.toString() ??
+                                                "Failed to save job"),
+                                            backgroundColor: AppColors.error,
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  }
+                                } catch (e) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text("Error: $e"),
+                                        backgroundColor: AppColors.error,
+                                      ),
+                                    );
+                                  }
+                                } finally {
+                                  setSheetState(() {
+                                    isSavingJob = false;
+                                  });
+                                }
+                              },
                       ),
                     ],
                   ),
@@ -1757,33 +2743,31 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
                           Column(
                             children: (job["responsibilities"] as List<String>)
                                 .map((resp) {
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 6),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          "• ",
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: GenZ.purple,
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: Text(
-                                            resp,
-                                            style: const TextStyle(
-                                              fontSize: 12.5,
-                                              color: AppColors.textSecondary,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      "• ",
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: GenZ.purple,
+                                      ),
                                     ),
-                                  );
-                                })
-                                .toList(),
+                                    Expanded(
+                                      child: Text(
+                                        resp,
+                                        style: const TextStyle(
+                                          fontSize: 12.5,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
                           ),
                           const SizedBox(height: 16),
 
@@ -1794,22 +2778,20 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
                             runSpacing: 8,
                             children: (job["requiredSkills"] as List<String>)
                                 .map((skill) {
-                                  return Chip(
-                                    label: Text(
-                                      skill,
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                        color: GenZ.purpleDark,
-                                      ),
-                                    ),
-                                    backgroundColor: GenZ.purple.withOpacity(
-                                      0.12,
-                                    ),
-                                    padding: EdgeInsets.zero,
-                                  );
-                                })
-                                .toList(),
+                              return Chip(
+                                label: Text(
+                                  skill,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: GenZ.purpleDark,
+                                  ),
+                                ),
+                                backgroundColor:
+                                    GenZ.purple.withOpacity(0.12),
+                                padding: EdgeInsets.zero,
+                              );
+                            }).toList(),
                           ),
                           const SizedBox(height: 16),
 
@@ -1875,7 +2857,7 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
                     ),
                   ),
 
-                  // Actions Panel (Apply, Directions, Share, Report, Contact)
+                  // Actions Panel (Apply, Directions, Share — Message & Report removed)
                   const Divider(),
                   Padding(
                     padding: const EdgeInsets.only(bottom: 16, top: 8),
@@ -1896,17 +2878,7 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
                             );
                           },
                         ),
-                        const SizedBox(width: 8),
-
-                        // Contact Employer
-                        _actionCircleButton(
-                          icon: Icons.chat_bubble_outline_rounded,
-                          tooltip: "Contact",
-                          onTap: () {
-                            _showContactOptionsDialog(job["company"] as String);
-                          },
-                        ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 10),
 
                         // Share
                         _actionCircleButton(
@@ -1922,19 +2894,9 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
                             );
                           },
                         ),
-                        const SizedBox(width: 8),
-
-                        // Report
-                        _actionCircleButton(
-                          icon: Icons.report_gmailerrorred_outlined,
-                          tooltip: "Report",
-                          onTap: () {
-                            _showReportJobDialog(job["title"] as String);
-                          },
-                        ),
                         const SizedBox(width: 14),
 
-                        // Primary Action Button (Apply Now / Expired / Closed)
+                        // Primary Action Button (Apply Now / Expired / Closed / Applied)
                         Expanded(
                           child: SizedBox(
                             height: 44,
@@ -1951,30 +2913,153 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
                                 ),
                                 elevation: 0,
                               ),
-                              onPressed: canApply
-                                  ? () {
-                                      setState(() {
-                                        _appliedJobIds.add(jobId);
+                              onPressed: (canApply && !isApplyingJob)
+                                  ? () async {
+                                      final userDetails =
+                                          await SessionManager.getUserDetails();
+                                      final userId = (userDetails['id'] is int)
+                                          ? userDetails['id'] as int
+                                          : int.tryParse(
+                                                  userDetails['id']
+                                                          ?.toString() ??
+                                                      '0') ??
+                                              0;
+
+                                      if (userId == 0) {
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                  "Please log in to apply for this job."),
+                                              backgroundColor: AppColors.error,
+                                            ),
+                                          );
+                                        }
+                                        return;
+                                      }
+
+                                      // Resume completion check (>= 75%)
+                                      final isResumeValid =
+                                          await JobApplicationService()
+                                              .validateResumeCompletion(
+                                                  context);
+                                      if (!isResumeValid) return;
+
+                                      setSheetState(() {
+                                        isApplyingJob = true;
                                       });
-                                      setSheetState(() {});
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            "Application sent successfully to ${job["company"]}!",
-                                          ),
-                                        ),
-                                      );
+
+                                      try {
+                                        final res = await JobApplicationService()
+                                            .applyForJob(
+                                          userId: userId,
+                                          jobPostId: numericJobId,
+                                        );
+
+                                        if (res['success'] == true) {
+                                          setState(() {
+                                            _appliedJobIds.add(jobId);
+                                            _appliedJobIds
+                                                .add(numericJobId.toString());
+                                          });
+
+                                          if (context.mounted) {
+                                            Navigator.pop(
+                                                context); // Close bottom sheet
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  res['message']?.toString() ??
+                                                      "Application submitted successfully to ${job["company"]}!",
+                                                ),
+                                                backgroundColor:
+                                                    AppColors.success,
+                                              ),
+                                            );
+                                            // Navigate to Application Tracker page and refresh when returning
+                                            await Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    const ApplicationTrackerPage(),
+                                              ),
+                                            );
+                                            _fetchUserApplications();
+                                          }
+                                        } else {
+                                          final msg = res['message']
+                                                  ?.toString() ??
+                                              "Failed to apply for job";
+                                          if (msg
+                                              .toLowerCase()
+                                              .contains("already applied")) {
+                                            setState(() {
+                                              _appliedJobIds.add(jobId);
+                                              _appliedJobIds
+                                                  .add(numericJobId.toString());
+                                            });
+                                          }
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(context)
+                                              ..hideCurrentSnackBar()
+                                              ..showSnackBar(
+                                                SnackBar(
+                                                  content: Text(msg),
+                                                  backgroundColor:
+                                                      AppColors.error,
+                                                ),
+                                              );
+                                          }
+                                        }
+                                      } catch (e) {
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                  "Error submitting application: $e"),
+                                              backgroundColor:
+                                                  AppColors.error,
+                                            ),
+                                          );
+                                        }
+                                      } finally {
+                                        setSheetState(() {
+                                          isApplyingJob = false;
+                                        });
+                                      }
                                     }
-                                  : null,
-                              child: Text(
-                                applyButtonText,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                              ),
+                                  : (isApplied
+                                      ? () async {
+                                          Navigator.pop(context);
+                                          await Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  const ApplicationTrackerPage(),
+                                            ),
+                                          );
+                                          _fetchUserApplications();
+                                        }
+                                      : null),
+                              child: isApplyingJob
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : Text(
+                                      applyButtonText,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
                             ),
                           ),
                         ),
@@ -2211,33 +3296,59 @@ class _JobNearMapPageState extends State<JobNearMapPage> {
   }
 }
 
-/// ── FAKE MAP PAINTER WITH CURRENT LOCATION & RADIUS CIRCLE & HEATMAPS ──
-class _FakeMapPainter extends CustomPainter {
-  final bool drawHeatmap;
-  final double radiusKm;
-  _FakeMapPainter({required this.drawHeatmap, required this.radiusKm});
+/// ── Pin Stem Triangle Pointer ──
+class _PinStemPainter extends CustomPainter {
+  final Color color;
+  _PinStemPainter({required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width / 2, size.height)
+      ..lineTo(size.width, 0)
+      ..close();
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _PinStemPainter oldDelegate) => oldDelegate.color != color;
+}
+
+/// ── FAKE MAP PAINTER WITH RADIAL GRID & HEATMAP ──
+class _FakeMapPainter extends CustomPainter {
+  final bool drawHeatmap;
+  final double radiusKm;
+  final List<Offset> jobOffsets;
+
+  _FakeMapPainter({
+    required this.drawHeatmap,
+    required this.radiusKm,
+    required this.jobOffsets,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width * 0.5, size.height * 0.5);
+
     // 1. Draw Map background grid roads
     final roadPaint = Paint()
       ..color = Colors.white
-      ..strokeWidth = 6;
+      ..strokeWidth = 5;
 
     final thinRoadPaint = Paint()
-      ..color = Colors.white.withOpacity(0.7)
-      ..strokeWidth = 2.5;
+      ..color = Colors.white.withOpacity(0.6)
+      ..strokeWidth = 2;
 
-    // Horizontal roads
-    for (
-      double y = size.height * 0.12;
-      y < size.height;
-      y += size.height * 0.18
-    ) {
+    for (double y = size.height * 0.12; y < size.height; y += size.height * 0.18) {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), roadPaint);
     }
 
-    // Vertical roads
     for (double x = size.width * 0.15; x < size.width; x += size.width * 0.22) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), thinRoadPaint);
     }
@@ -2245,91 +3356,86 @@ class _FakeMapPainter extends CustomPainter {
     // Soft green park area
     final parkPaint = Paint()..color = const Color(0xFFD9EAD3);
     canvas.drawOval(
-      Rect.fromLTWH(
-        size.width * 0.58,
-        size.height * 0.60,
-        size.width * 0.32,
-        size.height * 0.22,
-      ),
+      Rect.fromLTWH(size.width * 0.58, size.height * 0.60, size.width * 0.32, size.height * 0.22),
       parkPaint,
     );
 
     // Soft blue water area
     final waterPaint = Paint()..color = const Color(0xFFCFE2F3);
     canvas.drawOval(
-      Rect.fromLTWH(
-        -size.width * 0.15,
-        size.height * 0.02,
-        size.width * 0.45,
-        size.height * 0.16,
-      ),
+      Rect.fromLTWH(-size.width * 0.15, size.height * 0.02, size.width * 0.45, size.height * 0.16),
       waterPaint,
     );
 
-    // 2. Draw Translucent Radius selection circle (5.3 definition) centered around candidate
-    final double centerMapX = size.width * 0.5;
-    final double centerMapY = size.height * 0.5;
+    // 2. Draw Concentric Radial Grid Circles (5 KM & Selected Radius)
+    final double px5km = 5.0 * 18.0;
+    final double pxMaxRadius = radiusKm * 18.0;
 
-    // Scale distance radius visually (1 km = 18 pixels approx)
-    final double radiusPixels = radiusKm * 18.0;
-
-    final radiusOutlinePaint = Paint()
-      ..color = GenZ.purple.withOpacity(0.4)
+    final dashPaint5km = Paint()
+      ..color = const Color(0xFF1E3AE2).withOpacity(0.35)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.8;
+      ..strokeWidth = 1.5;
 
-    final radiusFillPaint = Paint()
-      ..color = GenZ.purple.withOpacity(0.04)
+    final dashPaintMaxRadius = Paint()
+      ..color = const Color(0xFF1E3AE2).withOpacity(0.5)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    final fillPaint = Paint()
+      ..color = const Color(0xFF1E3AE2).withOpacity(0.04)
       ..style = PaintingStyle.fill;
 
-    canvas.drawCircle(
-      Offset(centerMapX, centerMapY),
-      radiusPixels,
-      radiusFillPaint,
-    );
-    canvas.drawCircle(
-      Offset(centerMapX, centerMapY),
-      radiusPixels,
-      radiusOutlinePaint,
-    );
+    // Translucent fill & outer radial circle
+    canvas.drawCircle(center, pxMaxRadius, fillPaint);
+    _drawDashedCircle(canvas, center, pxMaxRadius, dashPaintMaxRadius, dashCount: 48);
 
-    // 3. Draw Local Hiring Heatmap overlays if toggled on (5.4)
+    // Inner 5km circle
+    if (pxMaxRadius > px5km) {
+      _drawDashedCircle(canvas, center, px5km, dashPaint5km, dashCount: 36);
+    }
+
+    // 3. Draw Local Hiring Heatmap Overlays (Red core -> Orange ring -> Yellow glow)
     if (drawHeatmap) {
-      final heatmapRed = Paint()
-        ..color = Colors.red.withOpacity(0.35)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 28);
+      for (final offset in jobOffsets) {
+        final pt = Offset(size.width * offset.dx, size.height * offset.dy);
 
-      final heatmapOrange = Paint()
-        ..color = Colors.orange.withOpacity(0.3)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 22);
+        final yellowHeat = Paint()
+          ..color = const Color(0xFFFBBF24).withOpacity(0.35)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 28);
 
-      final heatmapYellow = Paint()
-        ..color = Colors.yellow.withOpacity(0.3)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18);
+        final orangeHeat = Paint()
+          ..color = const Color(0xFFF97316).withOpacity(0.45)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 20);
 
-      // High activity areas (e.g. Kurla, Powai, Andheri East)
-      canvas.drawCircle(
-        Offset(size.width * 0.52, size.height * 0.56),
-        40,
-        heatmapRed,
-      ); // Kurla (Red)
-      canvas.drawCircle(
-        Offset(size.width * 0.60, size.height * 0.38),
-        35,
-        heatmapOrange,
-      ); // Powai (Orange)
-      canvas.drawCircle(
-        Offset(size.width * 0.32, size.height * 0.28),
-        30,
-        heatmapYellow,
-      ); // Andheri (Yellow)
+        final redHeat = Paint()
+          ..color = const Color(0xFFEF4444).withOpacity(0.55)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
+
+        canvas.drawCircle(pt, 50, yellowHeat);
+        canvas.drawCircle(pt, 34, orangeHeat);
+        canvas.drawCircle(pt, 20, redHeat);
+      }
+    }
+  }
+
+  void _drawDashedCircle(Canvas canvas, Offset center, double radius, Paint paint, {int dashCount = 40}) {
+    final double sweepAngle = (2 * math.pi) / dashCount;
+    for (int i = 0; i < dashCount; i += 2) {
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        i * sweepAngle,
+        sweepAngle,
+        false,
+        paint,
+      );
     }
   }
 
   @override
   bool shouldRepaint(covariant _FakeMapPainter oldDelegate) {
     return oldDelegate.drawHeatmap != drawHeatmap ||
-        oldDelegate.radiusKm != radiusKm;
+        oldDelegate.radiusKm != radiusKm ||
+        oldDelegate.jobOffsets != jobOffsets;
   }
 }
 

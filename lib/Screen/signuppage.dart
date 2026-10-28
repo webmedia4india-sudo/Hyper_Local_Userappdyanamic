@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
-import 'package:hyper_local/Screen/login_screen.dart';
+import 'package:hyper_local/Screen/otp_screen.dart';
+import 'package:hyper_local/controllers/auth_controller.dart';
+import 'package:hyper_local/models/auth/signup_request_model.dart';
 import '../utils/app_colors.dart';
 
 class SignUpPage extends StatefulWidget {
@@ -11,19 +13,38 @@ class SignUpPage extends StatefulWidget {
 }
 
 class _SignUpPageState extends State<SignUpPage> {
+  final AuthController _authController = AuthController();
+
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _dobController = TextEditingController();
+  final TextEditingController _currentRoleController = TextEditingController();
 
   bool _agreeToTerms = false;
+  bool _isLoading = false;
 
   String? _selectedGender;
   final List<String> _genderOptions = ["Male", "Female", "Other"];
 
+  String? _selectedIndustry;
+  List<String> _industryOptions = [];
+  bool _isLoadingIndustries = true;
+
   @override
   void initState() {
     super.initState();
+    _loadIndustries();
+  }
+
+  Future<void> _loadIndustries() async {
+    final industries = await _authController.fetchIndustries();
+    if (mounted) {
+      setState(() {
+        _industryOptions = industries;
+        _isLoadingIndustries = false;
+      });
+    }
   }
 
   @override
@@ -32,14 +53,122 @@ class _SignUpPageState extends State<SignUpPage> {
     _emailController.dispose();
     _phoneController.dispose();
     _dobController.dispose();
+    _currentRoleController.dispose();
     super.dispose();
   }
 
-  void _handleSignUp() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginPage()),
+  void _handleSignUp() async {
+    final name = _nameController.text.trim();
+    final email = _emailController.text.trim();
+    final phone = _phoneController.text.trim();
+    final dob = _dobController.text.trim();
+    final industry = _selectedIndustry ?? '';
+    final currentRole = _currentRoleController.text.trim();
+
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your full name')),
+      );
+      return;
+    }
+
+    if (email.isEmpty || !email.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid email address')),
+      );
+      return;
+    }
+
+    if (phone.length != 10) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid 10-digit phone number')),
+      );
+      return;
+    }
+
+    if (dob.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select your date of birth')),
+      );
+      return;
+    }
+
+    if (_selectedGender == null || _selectedGender!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select your gender')),
+      );
+      return;
+    }
+
+    if (_selectedIndustry == null || _selectedIndustry!.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select your industry')),
+      );
+      return;
+    }
+
+    if (currentRole.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your current role')),
+      );
+      return;
+    }
+
+    if (!_agreeToTerms) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please agree to the Terms & Conditions and Privacy Policy'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    final success = await _authController.sendOtp(
+      name: name,
+      email: email,
+      mobileNo: phone,
+      dob: dob,
+      gender: _selectedGender!,
+      industry: industry,
+      currentRole: currentRole,
     );
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('OTP sent to $phone')),
+      );
+
+      final signupData = SignupRequestModel(
+        name: name,
+        email: email,
+        mobileNo: phone,
+        dob: dob,
+        gender: _selectedGender!,
+        industry: industry,
+        currentRole: currentRole,
+      );
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => OtpScreen(
+            signupData: signupData,
+          ),
+        ),
+      );
+    } else {
+      final msg = _authController.errorMessage.isNotEmpty
+          ? _authController.errorMessage
+          : 'Failed to send OTP. Please try again.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg)),
+      );
+    }
   }
 
   // ── DATE OF BIRTH PICKER ────────────────────────────────────
@@ -284,6 +413,18 @@ By tapping "I Agree", you acknowledge that you have read and understood this Pri
 
                 _buildLabel("Gender"),
                 _buildGenderDropdown(),
+                const SizedBox(height: 12),
+
+                _buildLabel("Industry"),
+                _buildIndustryDropdown(),
+                const SizedBox(height: 12),
+
+                _buildLabel("Current Role"),
+                _buildTextField(
+                  controller: _currentRoleController,
+                  hint: "Enter your current role",
+                  icon: Icons.work_outline,
+                ),
                 const SizedBox(height: 16),
 
                 Row(
@@ -347,7 +488,7 @@ By tapping "I Agree", you acknowledge that you have read and understood this Pri
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton(
-                    onPressed: _handleSignUp,
+                    onPressed: _isLoading ? null : _handleSignUp,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.buttonPrimary,
                       foregroundColor: AppColors.buttonText,
@@ -356,23 +497,32 @@ By tapping "I Agree", you acknowledge that you have read and understood this Pri
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: const [
-                        Text(
-                          "Sign Up",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 22,
+                            width: 22,
+                            child: CircularProgressIndicator(
+                              color: AppColors.buttonText,
+                              strokeWidth: 2.5,
+                            ),
+                          )
+                        : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Text(
+                                "Sign Up",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Icon(
+                                Icons.arrow_forward_rounded,
+                                size: 18,
+                              ),
+                            ],
                           ),
-                        ),
-                        SizedBox(width: 8),
-                        Icon(
-                          Icons.arrow_forward_rounded,
-                          size: 18,
-                        ),
-                      ],
-                    ),
                   ),
                 ),
                 const SizedBox(height: 32),
@@ -515,6 +665,49 @@ By tapping "I Agree", you acknowledge that you have read and understood this Pri
           .toList(),
       onChanged: (value) {
         setState(() => _selectedGender = value);
+      },
+    );
+  }
+
+  // ── INDUSTRY DROPDOWN (FROM BACKEND) ────────────────────────
+  Widget _buildIndustryDropdown() {
+    return DropdownButtonFormField<String>(
+      initialValue: _selectedIndustry,
+      style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
+      icon: const Icon(Icons.keyboard_arrow_down_rounded,
+          color: AppColors.textHint),
+      decoration: InputDecoration(
+        hintText: _isLoadingIndustries ? "Loading industries..." : "Select industry",
+        hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 14),
+        prefixIcon: const Icon(Icons.business_outlined,
+            color: AppColors.textHint, size: 20),
+        filled: true,
+        fillColor: AppColors.background,
+        contentPadding:
+            const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+        ),
+      ),
+      items: _industryOptions
+          .map(
+            (industry) => DropdownMenuItem<String>(
+              value: industry,
+              child: Text(industry),
+            ),
+          )
+          .toList(),
+      onChanged: (value) {
+        setState(() => _selectedIndustry = value);
       },
     );
   }
